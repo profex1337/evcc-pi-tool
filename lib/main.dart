@@ -17,6 +17,11 @@ const kGreen = Color(0xFF1FD65F);
 const kBlack = Color(0xFF0B0E0C);
 const kCard = Color(0xFF161A17);
 
+/// evcc web UI port + the official evcc app in the Play Store.
+const kEvccPort = 7070;
+const kEvccPlayStoreUrl =
+    'https://play.google.com/store/apps/details?id=io.evcc.android';
+
 class EvccCompanionApp extends StatelessWidget {
   const EvccCompanionApp({super.key});
 
@@ -112,8 +117,19 @@ class _UpdaterPageState extends State<UpdaterPage> {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      if (mounted) _snack('Konnte den Download-Link nicht öffnen.');
+      if (mounted) _snack('Konnte den Link nicht öffnen.');
     }
+  }
+
+  /// Opens the evcc web UI at the entered host (default scheme http on :7070,
+  /// the evcc default; adjust if you run evcc behind https).
+  void _openEvccUi() {
+    final host = _host.text.trim();
+    if (host.isEmpty) {
+      _snack('Bitte zuerst Host/IP eintragen.');
+      return;
+    }
+    _openUrl('http://$host:$kEvccPort');
   }
 
   @override
@@ -463,6 +479,23 @@ class _UpdaterPageState extends State<UpdaterPage> {
             Text('Live-Log', style: theme.textTheme.titleSmall),
             const SizedBox(height: 4),
             _LogView(lines: _log, controller: _logScroll),
+            const SizedBox(height: 12),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              children: [
+                TextButton.icon(
+                  onPressed: _openEvccUi,
+                  icon: const Icon(Icons.open_in_browser, size: 18),
+                  label: const Text('evcc-Oberfläche öffnen'),
+                ),
+                TextButton.icon(
+                  onPressed: () => _openUrl(kEvccPlayStoreUrl),
+                  icon: const Icon(Icons.shop_outlined, size: 18),
+                  label: const Text('Offizielle evcc-App'),
+                ),
+              ],
+            ),
           ],
         ),
       ),
