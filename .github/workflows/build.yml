@@ -59,8 +59,8 @@ jobs:
           keyPassword=$KEY_PASSWORD
           EOF
 
-      - name: Build release APK
-        run: flutter build apk --release
+      - name: Build release APK (arm64-v8a only — keeps the APK small)
+        run: flutter build apk --release --target-platform android-arm64
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
