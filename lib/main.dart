@@ -9,26 +9,36 @@ import 'src/ssh_runner.dart';
 import 'src/update_check.dart';
 
 void main() {
-  runApp(const EvccUpdaterApp());
+  runApp(const EvccCompanionApp());
 }
 
-class EvccUpdaterApp extends StatelessWidget {
-  const EvccUpdaterApp({super.key});
+/// Clean minimal dark: near-black canvas, a single vivid green accent.
+const kGreen = Color(0xFF1FD65F);
+const kBlack = Color(0xFF0B0E0C);
+const kCard = Color(0xFF161A17);
+
+class EvccCompanionApp extends StatelessWidget {
+  const EvccCompanionApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final scheme = ColorScheme.fromSeed(
+      seedColor: kGreen,
+      brightness: Brightness.dark,
+    ).copyWith(primary: kGreen, onPrimary: Colors.black, surface: kBlack);
+
     return MaterialApp(
-      title: 'evcc Updater',
+      title: 'evcc companion',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorSchemeSeed: const Color(0xFF1FB25A), // evcc-Grün
         useMaterial3: true,
-        brightness: Brightness.light,
-      ),
-      darkTheme: ThemeData(
-        colorSchemeSeed: const Color(0xFF1FB25A),
-        useMaterial3: true,
-        brightness: Brightness.dark,
+        colorScheme: scheme,
+        scaffoldBackgroundColor: kBlack,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: kBlack,
+          foregroundColor: Colors.white,
+          elevation: 0,
+        ),
       ),
       home: const UpdaterPage(),
     );
@@ -75,6 +85,7 @@ class _UpdaterPageState extends State<UpdaterPage> {
   String? _statusMessage;
   bool _statusOk = true;
   ReleaseInfo? _update;
+  String? _setupUrl;
 
   @override
   void initState() {
@@ -168,6 +179,7 @@ class _UpdaterPageState extends State<UpdaterPage> {
       _log.clear();
       _statusMessage = null;
       _versionAfter = null;
+      _setupUrl = null;
     });
   }
 
@@ -262,6 +274,72 @@ class _UpdaterPageState extends State<UpdaterPage> {
     }
   }
 
+  Future<void> _install() async {
+    final port = _validatedPort();
+    if (port == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('evcc installieren?'),
+        content: Text(
+          'Installiert evcc auf ${_host.text.trim()}: fügt das offizielle '
+          'evcc-Repo hinzu, installiert das Paket und startet den Dienst.\n\n'
+          'Experimentell — nach offizieller evcc-Doku gebaut, aber noch nicht '
+          'gegen einen frischen Pi getestet.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Installieren'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    await _store.save(_currentSettings());
+    _beginBusy();
+
+    try {
+      final res = await _updater.install(
+        config: _configFor(port),
+        onLog: _appendLog,
+      );
+      if (!mounted) return;
+      setState(() {
+        _versionBefore = res.version;
+        _versionAfter = null;
+        _statusMessage = 'evcc ${res.version} installiert, '
+            'Dienst ${res.serviceActive ? 'aktiv' : 'inaktiv'}. '
+            'Jetzt im Browser einrichten.';
+        _statusOk = true;
+        _setupUrl = 'http://${_host.text.trim()}:7070';
+      });
+    } on EvccUpdateException catch (e) {
+      _appendLog('FEHLER: ${e.message}');
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = e.message;
+        _statusOk = false;
+      });
+    } catch (e) {
+      _appendLog('FEHLER: $e');
+      if (!mounted) return;
+      setState(() {
+        _statusMessage =
+            redactPassword('Unerwarteter Fehler: $e', _password.text);
+        _statusOk = false;
+      });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   void _snack(String msg) {
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
@@ -273,8 +351,33 @@ class _UpdaterPageState extends State<UpdaterPage> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('evcc Updater'),
-        centerTitle: false,
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('evcc ',
+                style: TextStyle(
+                    fontWeight: FontWeight.w800, letterSpacing: 0.3)),
+            Text('companion',
+                style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.3,
+                    color: kGreen)),
+          ],
+        ),
+        actions: [
+          PopupMenuButton<String>(
+            enabled: !_busy,
+            onSelected: (v) {
+              if (v == 'install') _install();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'install',
+                child: Text('evcc installieren (experimentell)'),
+              ),
+            ],
+          ),
+        ],
       ),
       body: SafeArea(
         child: ListView(
@@ -346,6 +449,16 @@ class _UpdaterPageState extends State<UpdaterPage> {
               const SizedBox(height: 12),
               _StatusBanner(message: _statusMessage!, ok: _statusOk),
             ],
+            if (_setupUrl != null) ...[
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: () => _openUrl(_setupUrl!),
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('evcc-Einrichtung öffnen'),
+                style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48)),
+              ),
+            ],
             const SizedBox(height: 12),
             Text('Live-Log', style: theme.textTheme.titleSmall),
             const SizedBox(height: 4),
@@ -380,6 +493,12 @@ class _ConnectionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       margin: EdgeInsets.zero,
+      elevation: 0,
+      color: kCard,
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: Colors.white10),
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         child: Column(

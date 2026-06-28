@@ -1,9 +1,9 @@
-# evcc Updater
+# evcc companion
 
-Schlanke **Android-App**, die [evcc](https://evcc.io) auf einem Raspberry Pi
-**per Knopfdruck via SSH aktualisiert**. Eine Seite, ein Button: IP + Pi-Zugang
-eintragen, tippen — fertig. Für mich + Freunde, Verteilung als **APK über GitHub
-Releases**.
+Schlanke **Android-App** (clean minimal dark), die [evcc](https://evcc.io) auf
+einem Raspberry Pi **per Knopfdruck via SSH aktualisiert** — und es bei Bedarf
+auch **installieren** kann. IP + Pi-Zugang eintragen, tippen, fertig. Für mich +
+Freunde, Verteilung als **APK über GitHub Releases**.
 
 > ⚠️ Hinweis: Die App führt mit deinem eingegebenen Passwort `sudo apt-get`
 > auf dem Pi aus. Nutze sie nur für Geräte, die dir gehören.
@@ -28,6 +28,19 @@ ideal zum gefahrlosen Testen, ob ein Update verfügbar ist.
 Mit **„Verbindung testen"** prüfst du in Sekunden, ob Host/Port/Benutzer/Passwort
 stimmen: die App verbindet, liest die evcc-Version und den Dienststatus — **ohne
 `sudo`/`apt`**, also ohne irgendetwas anzufassen.
+
+### evcc installieren (experimentell)
+
+Über das **⋮-Menü → „evcc installieren"** richtet die App evcc auf einem frisch
+konfigurierten Pi ein (nach [offizieller evcc-Doku](https://docs.evcc.io/en/installation/linux)):
+offizielles apt-Repo via `setup.deb.sh` hinzufügen → `apt install -y evcc` →
+`systemctl enable --now evcc`. Alles läuft als root über **einen** `sudo -S bash -s`
+-Aufruf (Passwort als erste stdin-Zeile, **nie** in der Befehlszeile). Danach
+zeigt die App **„Einrichtung öffnen"** → `http://<pi>:7070`.
+
+> Experimentell: nach offizieller Doku gebaut, aber noch nicht End-to-End gegen
+> einen frischen Pi validiert (anders als die Update-Mechanik). Erst auf einem
+> Test-Pi ausprobieren.
 
 ## Installation (Sideload)
 

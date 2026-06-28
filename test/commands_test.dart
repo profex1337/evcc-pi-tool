@@ -47,4 +47,35 @@ void main() {
       expect(steps.every((s) => s.label.trim().isNotEmpty), isTrue);
     });
   });
+
+  group('buildInstallScript', () {
+    final script = buildInstallScript();
+
+    test('installs the evcc package', () {
+      expect(script, contains('apt-get install -y evcc'));
+    });
+
+    test('adds the official evcc apt repo via the setup script', () {
+      expect(
+        script,
+        contains('https://dl.evcc.io/public/evcc/stable/setup.deb.sh'),
+      );
+    });
+
+    test('enables and starts the service', () {
+      expect(script, contains('systemctl enable --now evcc'));
+    });
+
+    test('installs prerequisites including curl', () {
+      expect(script, contains('curl'));
+    });
+
+    test('aborts on the first error', () {
+      expect(script, contains('set -e'));
+    });
+
+    test('runs non-interactively (no apt prompts)', () {
+      expect(script, contains('DEBIAN_FRONTEND=noninteractive'));
+    });
+  });
 }

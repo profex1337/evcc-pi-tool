@@ -70,6 +70,30 @@ List<SshStep> buildUpdateSteps({
   ];
 }
 
+/// The remote command that runs the install script as root: `sudo -S bash -s`.
+///
+/// The caller feeds `<password>\n<script>` to stdin — `sudo -S` consumes the
+/// first line as the password, then `bash -s` executes the rest as root. This
+/// keeps the password out of the command line entirely.
+const String installShellCommand = 'sudo -S bash -s';
+
+/// The root install script: official evcc apt-repo setup + package install +
+/// service enable. Mirrors https://docs.evcc.io/en/installation/linux.
+/// Runs as root (via [installShellCommand]), so it uses no inner `sudo`.
+String buildInstallScript() {
+  return '''
+set -e
+export DEBIAN_FRONTEND=noninteractive
+apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.evcc.io/public/evcc/stable/setup.deb.sh' -o /tmp/evcc-setup.sh
+bash /tmp/evcc-setup.sh
+rm -f /tmp/evcc-setup.sh
+apt-get update
+apt-get install -y evcc
+systemctl enable --now evcc
+''';
+}
+
 String _upgradeCommand({required bool fullUpgrade, required bool dryRun}) {
   if (fullUpgrade) {
     return dryRun

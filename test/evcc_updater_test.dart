@@ -273,6 +273,54 @@ void main() {
     });
   });
 
+  group('EvccUpdater.install', () {
+    const installCmd = 'sudo -S bash -s';
+
+    test('runs the install script as root, then verifies version + service',
+        () async {
+      final runner = FakeSshRunner({
+        installCmd: [_r('Setting up evcc ...', exitCode: 0)],
+        _vQuery: [_r('0.310.0\n')],
+        _svc: [_r('active\n')],
+      });
+
+      final res =
+          await _updaterWith(runner).install(config: _config, onLog: (_) {});
+
+      expect(res.version, '0.310.0');
+      expect(res.serviceActive, isTrue);
+      // Password is the FIRST stdin line (for sudo -S), not in the command.
+      expect(runner.stdinByCommand[installCmd], startsWith('sekret\n'));
+      expect(runner.stdinByCommand[installCmd], contains('apt-get install -y evcc'));
+      expect(runner.commandsRun.any((c) => c.contains('sekret')), isFalse);
+    });
+
+    test('detects a rejected sudo password', () async {
+      final runner = FakeSshRunner({
+        installCmd: [
+          _r('', stderr: 'sudo: 1 incorrect password attempt', exitCode: 1)
+        ],
+      });
+
+      await expectLater(
+        _updaterWith(runner).install(config: _config, onLog: (_) {}),
+        throwsA(isA<EvccUpdateException>()
+            .having((e) => e.kind, 'kind', UpdateErrorKind.sudo)),
+      );
+    });
+
+    test('fails when the install script exits non-zero', () async {
+      final runner = FakeSshRunner({
+        installCmd: [_r('E: Unable to locate package evcc', exitCode: 100)],
+      });
+
+      await expectLater(
+        _updaterWith(runner).install(config: _config, onLog: (_) {}),
+        throwsA(isA<EvccUpdateException>()),
+      );
+    });
+  });
+
   group('EvccUpdater error handling', () {
     test('maps a socket failure to a connection error', () async {
       final runner = FakeSshRunner({}, connectError: SocketException('refused'));

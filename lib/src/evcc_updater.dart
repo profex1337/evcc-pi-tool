@@ -37,6 +37,14 @@ class ConnectionInfo {
   const ConnectionInfo({required this.version, required this.serviceActive});
 }
 
+/// Result of a successful evcc installation.
+class InstallResult {
+  final String version;
+  final bool serviceActive;
+
+  const InstallResult({required this.version, required this.serviceActive});
+}
+
 /// Builds the [SshRunner] for a given config (injected so tests can fake SSH).
 typedef SshRunnerFactory = SshRunner Function(SshConfig config);
 
@@ -159,6 +167,66 @@ class EvccUpdater {
 
         log('OK: evcc $version, Dienst ${active ? 'aktiv' : 'inaktiv'}.');
         return ConnectionInfo(version: version, serviceActive: active);
+      },
+    );
+  }
+
+  /// Installs evcc on a freshly-configured Pi: adds the official apt repo,
+  /// installs the package and enables the service — all as root via one
+  /// `sudo -S bash -s` call (password fed as the first stdin line, never on the
+  /// command line). Then verifies the installed version and service state.
+  ///
+  /// Experimental: built from evcc's official docs but not validated against a
+  /// fresh Pi end-to-end. Throws [EvccUpdateException] on failure.
+  Future<InstallResult> install({
+    required SshConfig config,
+    required void Function(String line) onLog,
+  }) {
+    return _withConnection<InstallResult>(
+      config: config,
+      onLog: onLog,
+      body: (runner, log) async {
+        log('Installiere evcc … (Repo einrichten + Paket installieren, '
+            'das dauert ein paar Minuten)');
+
+        final result = await runner.run(
+          installShellCommand,
+          stdin: '${config.password}\n${buildInstallScript()}\n',
+          onOutput: (chunk) {
+            final trimmed = chunk.trimRight();
+            if (trimmed.isNotEmpty) log(trimmed);
+          },
+        );
+        final combined = '${result.stdout}\n${result.stderr}';
+
+        if (isSudoPasswordFailure(combined)) {
+          throw const EvccUpdateException(
+            UpdateErrorKind.sudo,
+            'sudo hat das Passwort abgelehnt – stimmt das Pi-Passwort?',
+          );
+        }
+        if (result.exitCode != null && result.exitCode != 0) {
+          throw EvccUpdateException(
+            UpdateErrorKind.unknown,
+            'Installation fehlgeschlagen (Exit ${result.exitCode}). '
+            'Details im Log.',
+          );
+        }
+
+        final versionResult = await runner.run(versionQuery);
+        final version = parseInstalledVersion(versionResult.stdout);
+        if (version == null) {
+          throw const EvccUpdateException(
+            UpdateErrorKind.packageMissing,
+            'Installation lief durch, aber evcc ist nicht auffindbar.',
+          );
+        }
+
+        final serviceResult = await runner.run(serviceStatus);
+        final active = isServiceActive(serviceResult.stdout);
+
+        log('evcc $version installiert, Dienst ${active ? 'aktiv' : 'inaktiv'}.');
+        return InstallResult(version: version, serviceActive: active);
       },
     );
   }

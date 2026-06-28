@@ -3,7 +3,7 @@
          release build (which merges only src/main) has no network access. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="evcc_updater"
+        android:label="evcc companion"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
