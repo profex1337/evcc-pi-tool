@@ -27,7 +27,7 @@ void main() {
     await tester.pumpWidget(_page());
     await tester.pumpAndSettle();
 
-    expect(find.text('companion'), findsOneWidget); // app bar wordmark
+    expect(find.text('Pi-Tool'), findsOneWidget); // app bar wordmark
     expect(find.text('evcc aktualisieren'), findsOneWidget);
     expect(find.text('Verbindung testen'), findsOneWidget);
     expect(find.text('Probelauf (ändert nichts)'), findsOneWidget);

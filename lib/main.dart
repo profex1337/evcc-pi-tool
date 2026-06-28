@@ -9,7 +9,7 @@ import 'src/ssh_runner.dart';
 import 'src/update_check.dart';
 
 void main() {
-  runApp(const EvccCompanionApp());
+  runApp(const EvccPiToolApp());
 }
 
 /// Clean minimal dark: near-black canvas, a single vivid green accent.
@@ -22,8 +22,8 @@ const kEvccPort = 7070;
 const kEvccPlayStoreUrl =
     'https://play.google.com/store/apps/details?id=io.evcc.android';
 
-class EvccCompanionApp extends StatelessWidget {
-  const EvccCompanionApp({super.key});
+class EvccPiToolApp extends StatelessWidget {
+  const EvccPiToolApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +33,7 @@ class EvccCompanionApp extends StatelessWidget {
     ).copyWith(primary: kGreen, onPrimary: Colors.black, surface: kBlack);
 
     return MaterialApp(
-      title: 'evcc companion',
+      title: 'evcc Pi-Tool',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -373,7 +373,7 @@ class _UpdaterPageState extends State<UpdaterPage> {
             Text('evcc ',
                 style: TextStyle(
                     fontWeight: FontWeight.w800, letterSpacing: 0.3)),
-            Text('companion',
+            Text('Pi-Tool',
                 style: TextStyle(
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.3,

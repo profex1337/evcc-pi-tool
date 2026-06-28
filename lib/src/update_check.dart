@@ -88,7 +88,7 @@ class UpdateChecker {
   UpdateChecker({
     HttpGetJson? getJson,
     this.owner = 'profex1337',
-    this.repo = 'evcc-companion',
+    this.repo = 'evcc-pi-tool',
   }) : _get = getJson ?? _defaultGetJson;
 
   /// Returns [ReleaseInfo] when a release newer than [currentVersion] exists,

@@ -1,4 +1,4 @@
-# evcc companion
+# evcc Pi-Tool
 
 Schlanke **Android-App** (clean minimal dark), die [evcc](https://evcc.io) auf
 einem Raspberry Pi **per Knopfdruck via SSH aktualisiert** — und es bei Bedarf
