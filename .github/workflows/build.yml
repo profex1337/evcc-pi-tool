@@ -65,8 +65,23 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: evcc-updater-apk
+          name: evcc-pi-tool-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+      # Play Store wants an App Bundle (.aab). Built only when signing is
+      # configured; kept as a CI artifact (NOT attached to the public release,
+      # so friends only ever see the installable .apk).
+      - name: Build release App Bundle (Play Store)
+        if: env.KEYSTORE_BASE64 != ''
+        run: flutter build appbundle --release
+
+      - name: Upload Play Store AAB artifact
+        if: env.KEYSTORE_BASE64 != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: evcc-pi-tool-playstore-aab
+          path: build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error
 
       - name: Publish Release (on tag)

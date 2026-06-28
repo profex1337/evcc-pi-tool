@@ -7,6 +7,10 @@ Freunde, Verteilung als **APK über GitHub Releases**.
 
 > ⚠️ Hinweis: Die App führt mit deinem eingegebenen Passwort `sudo apt-get`
 > auf dem Pi aus. Nutze sie nur für Geräte, die dir gehören.
+>
+> ℹ️ **Inoffizielles** Community-Tool, nicht mit dem evcc-Projekt verbunden.
+> Für die tägliche Lade-Steuerung gibt es die
+> [offizielle evcc-App](https://play.google.com/store/apps/details?id=io.evcc.android).
 
 ## Was die App macht
 
@@ -31,8 +35,8 @@ stimmen: die App verbindet, liest die evcc-Version und den Dienststatus — **oh
 
 ### evcc installieren (experimentell)
 
-Über das **⋮-Menü → „evcc installieren"** richtet die App evcc auf einem frisch
-konfigurierten Pi ein (nach [offizieller evcc-Doku](https://docs.evcc.io/en/installation/linux)):
+Über den Button **„evcc installieren"** (Abschnitt „Erstinstallation auf neuem
+Pi") richtet die App evcc auf einem frisch konfigurierten Pi ein (nach [offizieller evcc-Doku](https://docs.evcc.io/en/installation/linux)):
 offizielles apt-Repo via `setup.deb.sh` hinzufügen → `apt install -y evcc` →
 `systemctl enable --now evcc`. Alles läuft als root über **einen** `sudo -S bash -s`
 -Aufruf (Passwort als erste stdin-Zeile, **nie** in der Befehlszeile). Danach
@@ -106,6 +110,23 @@ CI baut die signierte APK und hängt sie ans GitHub-Release.
 > Der Keystore wird **nie** ins Repo committet (`.gitignore`). Bewahre die
 > `.jks`-Datei + Passwort sicher auf — sie wird für künftige signierte Updates
 > gebraucht.
+
+## Verteilung: Sideload **und** Play-Store-fähig
+
+Beide Wege funktionieren parallel, ohne sich zu stören:
+
+- **Sideload (Standard):** Die signierte **`app-release.apk`** am `v*`-Release —
+  Freunde laden + installieren direkt, ohne Konto. Ändert sich nichts.
+- **Play Store (optional):** Derselbe CI-Lauf erzeugt zusätzlich ein **`.aab`**
+  (App Bundle) als Artifact **`evcc-pi-tool-playstore-aab`**. Damit ist alles für
+  eine Play-Einreichung vorbereitet:
+  - Datenschutzerklärung: <https://profex1337.github.io/evcc-pi-tool/privacy.html>
+  - Store-Assets + Texte + Data-Safety + Checkliste: [`store/play/listing.md`](store/play/listing.md)
+  - Selbst beizusteuern: Google-Play-Account (25 $), Screenshots, der 14-Tage-
+    Closed-Test für neue Privat-Accounts.
+  > Hinweis: Play nutzt **Play App Signing** (re-signiert das Bundle) — die
+  > Play-Version hat daher eine andere Signatur als die Sideload-APK; beide Kanäle
+  > laufen unabhängig nebeneinander.
 
 ## Entwicklung
 

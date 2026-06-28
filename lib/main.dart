@@ -23,6 +23,7 @@ const kCard = Color(0xFF161A17);
 const kEvccPort = 7070;
 const kEvccPlayStoreUrl =
     'https://play.google.com/store/apps/details?id=io.evcc.android';
+const kPrivacyUrl = 'https://profex1337.github.io/evcc-pi-tool/privacy.html';
 
 class EvccPiToolApp extends StatelessWidget {
   const EvccPiToolApp({super.key});
@@ -539,6 +540,11 @@ class _UpdaterPageState extends State<UpdaterPage>
                   onPressed: () => _openUrl(kEvccPlayStoreUrl),
                   icon: const Icon(Icons.shop_outlined, size: 18),
                   label: const Text('Offizielle evcc-App'),
+                ),
+                TextButton.icon(
+                  onPressed: () => _openUrl(kPrivacyUrl),
+                  icon: const Icon(Icons.privacy_tip_outlined, size: 18),
+                  label: const Text('Datenschutz'),
                 ),
               ],
             ),

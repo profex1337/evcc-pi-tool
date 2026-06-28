@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>evcc Pi-Tool — Datenschutzerklärung / Privacy Policy</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { background:#0B0E0C; color:#E8ECE8; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+           line-height:1.6; margin:0; padding:32px 20px; }
+    main { max-width:760px; margin:0 auto; }
+    h1 { font-size:1.6rem; } h2 { font-size:1.15rem; margin-top:2rem; color:#1FD65F; }
+    a { color:#1FD65F; } code { background:#161A17; padding:2px 6px; border-radius:6px; }
+    .muted { color:#9AA39B; font-size:.9rem; }
+    hr { border:none; border-top:1px solid #ffffff1f; margin:2.5rem 0; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>evcc Pi-Tool — Datenschutzerklärung</h1>
+  <p class="muted">Stand: 2026-06-28 · Diese App ist ein <strong>inoffizielles</strong> Community-Tool und
+  steht in keiner Verbindung zum evcc-Projekt.</p>
+
+  <h2>Kurzfassung</h2>
+  <p>evcc Pi-Tool sammelt <strong>keine</strong> personenbezogenen Daten, hat <strong>kein</strong> Konto,
+  <strong>keine</strong> Werbung und <strong>kein</strong> Tracking. Deine Zugangsdaten bleiben verschlüsselt
+  auf deinem Gerät.</p>
+
+  <h2>Welche Daten und wo</h2>
+  <ul>
+    <li><strong>Verbindungsdaten</strong> (Host/IP, Port, Benutzername, Passwort), die du selbst eingibst,
+      werden ausschließlich <strong>lokal auf deinem Gerät verschlüsselt</strong> gespeichert
+      (Android Keystore via <code>flutter_secure_storage</code>).</li>
+    <li>Sie werden <strong>nicht</strong> an den Entwickler oder Dritte übertragen.</li>
+    <li>Das Passwort wird ausschließlich über deine eigene <strong>SSH-Verbindung an deinen eigenen Pi/Server</strong>
+      gesendet, um die von dir ausgelöste Aktion (Update/Installation) auszuführen. Es wird aus der
+      sichtbaren Log-Ausgabe herausgefiltert und nie im Klartext gespeichert.</li>
+  </ul>
+
+  <h2>Netzwerkzugriffe</h2>
+  <ul>
+    <li><strong>SSH</strong> zu dem von dir eingegebenen Host (dein eigenes Gerät im Netzwerk).</li>
+    <li>Ein Aufruf der öffentlichen <strong>GitHub-Releases-API</strong>, um auf App-Updates zu prüfen.
+      Dabei werden <strong>keine</strong> personenbezogenen Daten gesendet.</li>
+    <li>Beim Öffnen von Links (evcc-Weboberfläche, offizielle evcc-App im Play Store) öffnet sich dein Browser
+      bzw. der Play Store.</li>
+  </ul>
+
+  <h2>Löschung</h2>
+  <p>Deinstallieren der App entfernt alle lokal gespeicherten Daten.</p>
+
+  <h2>Kontakt</h2>
+  <p>Fragen oder Anliegen bitte über die
+  <a href="https://github.com/profex1337/evcc-pi-tool/issues">GitHub-Issues des Projekts</a>.</p>
+
+  <hr>
+
+  <h1>evcc Pi-Tool — Privacy Policy (English)</h1>
+  <p>evcc Pi-Tool collects <strong>no</strong> personal data, has no account, no ads and no tracking.
+  Connection details you enter (host, port, username, password) are stored <strong>only locally and encrypted</strong>
+  on your device (Android Keystore). They are never transmitted to the developer or any third party. Your password
+  is sent only over your own SSH connection to your own server to perform the action you trigger, and is filtered
+  from logs. The app makes one call to GitHub's public Releases API to check for app updates (no personal data sent).
+  Uninstalling the app deletes all stored data. This is an <strong>unofficial</strong> community tool, not affiliated
+  with the evcc project. Contact: via
+  <a href="https://github.com/profex1337/evcc-pi-tool/issues">GitHub Issues</a>.</p>
+</main>
+</body>
+</html>
