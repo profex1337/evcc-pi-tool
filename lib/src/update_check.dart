@@ -107,6 +107,34 @@ class UpdateChecker {
   }
 }
 
+/// Latest evcc release (tag + release-notes body).
+class EvccRelease {
+  final String version;
+  final String notes;
+
+  const EvccRelease({required this.version, required this.notes});
+}
+
+EvccRelease parseEvccRelease(Map<String, dynamic> json) => EvccRelease(
+      version: (json['tag_name'] ?? '').toString(),
+      notes: (json['body'] ?? '').toString(),
+    );
+
+/// Fetches evcc's latest GitHub release notes. Fail-soft: returns null on any
+/// error, so it can never block the update flow.
+Future<EvccRelease?> fetchEvccRelease({HttpGetJson? getJson}) async {
+  final get = getJson ?? _defaultGetJson;
+  try {
+    final json = await get(
+      Uri.parse('https://api.github.com/repos/evcc-io/evcc/releases/latest'),
+    );
+    final release = parseEvccRelease(json);
+    return release.version.isEmpty ? null : release;
+  } catch (_) {
+    return null;
+  }
+}
+
 Future<Map<String, dynamic>> _defaultGetJson(Uri url) async {
   final client = HttpClient();
   try {

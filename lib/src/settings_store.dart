@@ -1,5 +1,6 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import 'history.dart';
 import 'host_key.dart';
 
 /// How to authenticate the SSH connection.
@@ -34,6 +35,9 @@ class Settings {
   /// evcc apt channel for fresh installs: 'stable' | 'unstable' (nightly).
   final String channel;
 
+  /// Run a read-only status check automatically on launch.
+  final bool autoCheck;
+
   const Settings({
     required this.host,
     required this.port,
@@ -48,6 +52,7 @@ class Settings {
     this.lockEnabled = false,
     this.themeMode = 'system',
     this.channel = 'stable',
+    this.autoCheck = false,
   });
 
   static const empty = Settings(
@@ -77,6 +82,7 @@ class SettingsStore {
   static const _kLockEnabled = 'lockEnabled';
   static const _kThemeMode = 'themeMode';
   static const _kChannel = 'channel';
+  static const _kAutoCheck = 'autoCheck';
 
   final FlutterSecureStorage _storage;
 
@@ -100,6 +106,7 @@ class SettingsStore {
       lockEnabled: all[_kLockEnabled] == 'true',
       themeMode: all[_kThemeMode] ?? Settings.empty.themeMode,
       channel: all[_kChannel] ?? Settings.empty.channel,
+      autoCheck: all[_kAutoCheck] == 'true',
     );
   }
 
@@ -117,7 +124,27 @@ class SettingsStore {
     await _storage.write(key: _kLockEnabled, value: s.lockEnabled.toString());
     await _storage.write(key: _kThemeMode, value: s.themeMode);
     await _storage.write(key: _kChannel, value: s.channel);
+    await _storage.write(key: _kAutoCheck, value: s.autoCheck.toString());
   }
+}
+
+/// Persists the action history (JSON array) in secure storage.
+class HistoryStore {
+  static const _key = 'history_v1';
+  final FlutterSecureStorage _storage;
+
+  HistoryStore([FlutterSecureStorage? storage])
+      : _storage = storage ?? const FlutterSecureStorage();
+
+  Future<List<HistoryEntry>> load() async =>
+      parseHistory(await _storage.read(key: _key) ?? '');
+
+  Future<void> add(HistoryEntry entry) async {
+    final list = capHistory([...await load(), entry]);
+    await _storage.write(key: _key, value: encodeHistory(list));
+  }
+
+  Future<void> clear() => _storage.delete(key: _key);
 }
 
 /// [HostKeyStore] backed by the platform secure storage.

@@ -74,6 +74,15 @@ void main() {
     });
   });
 
+  group('parseEvccRelease', () {
+    test('reads tag and notes body', () {
+      final r = parseEvccRelease(
+          {'tag_name': '0.207.0', 'body': '## Changes\n- something'});
+      expect(r.version, '0.207.0');
+      expect(r.notes, contains('Changes'));
+    });
+  });
+
   group('UpdateChecker.checkForUpdate', () {
     UpdateChecker checkerReturning(Map<String, dynamic> json) =>
         UpdateChecker(getJson: (_) async => json);

@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'src/authenticator.dart';
 import 'src/evcc_updater.dart';
+import 'src/history.dart';
 import 'src/parsing.dart';
 import 'src/settings_store.dart';
 import 'src/ssh_runner.dart';
@@ -101,6 +102,7 @@ class _UpdaterPageState extends State<UpdaterPage>
       widget.updateChecker ?? UpdateChecker();
   late final Authenticator _authenticator =
       widget.authenticator ?? LocalAuthenticator();
+  final HistoryStore _historyStore = HistoryStore();
 
   final _host = TextEditingController();
   final _port = TextEditingController(text: '22');
@@ -121,6 +123,7 @@ class _UpdaterPageState extends State<UpdaterPage>
   bool _unlocking = false;
   String _themeMode = 'system';
   String _channel = 'stable';
+  bool _autoCheck = false;
 
   final List<String> _log = [];
   String? _versionBefore;
@@ -196,6 +199,7 @@ class _UpdaterPageState extends State<UpdaterPage>
       _lockEnabled = s.lockEnabled;
       _themeMode = s.themeMode;
       _channel = s.channel;
+      _autoCheck = s.autoCheck;
       if (_lockEnabled) _locked = true;
     });
     themeModeNotifier.value = parseThemeMode(_themeMode);
@@ -203,7 +207,11 @@ class _UpdaterPageState extends State<UpdaterPage>
     for (final c in _savedControllers) {
       c.addListener(_scheduleSave);
     }
-    if (_locked) _tryUnlock();
+    if (_locked) {
+      _tryUnlock();
+    } else {
+      _autoStatus();
+    }
   }
 
   /// Debounced auto-save: persists ~0.8s after the last edit.
@@ -228,6 +236,7 @@ class _UpdaterPageState extends State<UpdaterPage>
         lockEnabled: _lockEnabled,
         themeMode: _themeMode,
         channel: _channel,
+        autoCheck: _autoCheck,
       );
 
   Future<void> _checkForUpdate() async {
@@ -337,6 +346,16 @@ class _UpdaterPageState extends State<UpdaterPage>
   }
 
   Future<void> _run({required bool dryRun}) async {
+    // Before a real update, show evcc's latest release notes (fail-soft).
+    if (!dryRun) {
+      final rel = await fetchEvccRelease();
+      if (!mounted) return;
+      if (rel != null &&
+          !await _confirm(
+              'evcc ${rel.version} installieren?', _notesExcerpt(rel.notes))) {
+        return;
+      }
+    }
     final config = _prepare();
     if (config == null) return;
     _lastAction = () => _run(dryRun: dryRun);
@@ -354,6 +373,7 @@ class _UpdaterPageState extends State<UpdaterPage>
         _statusMessage = summary.message;
         _statusOk = true;
       });
+      if (!dryRun) _addHistory(summary.message);
     });
   }
 
@@ -404,6 +424,7 @@ class _UpdaterPageState extends State<UpdaterPage>
         _statusOk = true;
         _setupUrl = _evccUiUrl();
       });
+      _addHistory('evcc ${res.version} installiert.');
     });
   }
 
@@ -418,6 +439,7 @@ class _UpdaterPageState extends State<UpdaterPage>
         _statusMessage = 'evcc-Dienst neu gestartet.';
         _statusOk = true;
       });
+      _addHistory('evcc-Dienst neu gestartet.');
     });
   }
 
@@ -438,6 +460,7 @@ class _UpdaterPageState extends State<UpdaterPage>
         _statusMessage = 'Neustart ausgelöst – der Pi ist gleich kurz offline.';
         _statusOk = true;
       });
+      _addHistory('Pi-Neustart ausgelöst.');
     });
   }
 
@@ -470,6 +493,82 @@ class _UpdaterPageState extends State<UpdaterPage>
       return;
     }
     SharePlus.instance.share(ShareParams(text: _log.join('\n')));
+  }
+
+  /// Silent read-only status check on launch (opt-in). Pre-fills the version
+  /// badge + status without entering the busy state or clearing the log.
+  Future<void> _autoStatus() async {
+    if (!_autoCheck || _host.text.trim().isEmpty) return;
+    final port = int.tryParse(_port.text.trim());
+    if (port == null) return;
+    if (_authMode == AuthMode.password && _password.text.isEmpty) return;
+    if (_authMode == AuthMode.key && _privateKey.text.trim().isEmpty) return;
+    try {
+      final info =
+          await _updater.testConnection(config: _configFor(port), onLog: (_) {});
+      if (!mounted) return;
+      setState(() {
+        _versionBefore = info.version;
+        _versionAfter = null;
+        _statusMessage = 'evcc ${info.version}, '
+            'Dienst ${info.serviceActive ? 'aktiv' : 'inaktiv'}.';
+        _statusOk = true;
+      });
+    } catch (_) {
+      // silent — never disrupt launch
+    }
+  }
+
+  void _addHistory(String text) {
+    _historyStore.add(HistoryEntry(
+      when: formatTimestamp(DateTime.now()),
+      text: text,
+    ));
+  }
+
+  String _notesExcerpt(String s) {
+    final t = s.trim();
+    if (t.isEmpty) return 'Neue evcc-Version verfügbar.';
+    return t.length > 500 ? '${t.substring(0, 500)} …' : t;
+  }
+
+  Future<void> _showHistory() async {
+    final entries = await _historyStore.load();
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: entries.isEmpty
+            ? const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text('Noch kein Verlauf.'),
+              )
+            : ListView(
+                shrinkWrap: true,
+                children: [
+                  ListTile(
+                    title: Text('Verlauf',
+                        style: Theme.of(ctx).textTheme.titleMedium),
+                    trailing: TextButton(
+                      onPressed: () async {
+                        await _historyStore.clear();
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      },
+                      child: const Text('Leeren'),
+                    ),
+                  ),
+                  for (final e in entries.reversed)
+                    ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.history, size: 18),
+                      title: Text(e.text),
+                      subtitle: Text(e.when),
+                    ),
+                ],
+              ),
+      ),
+    );
   }
 
   // ---- helpers -------------------------------------------------------------
@@ -559,6 +658,18 @@ class _UpdaterPageState extends State<UpdaterPage>
                       return;
                     }
                     setState(() => _lockEnabled = v);
+                    setSheet(() {});
+                    _scheduleSave();
+                  },
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Beim Start Status prüfen'),
+                  subtitle:
+                      const Text('Liest evcc-Version + Dienststatus automatisch'),
+                  value: _autoCheck,
+                  onChanged: (v) {
+                    setState(() => _autoCheck = v);
                     setSheet(() {});
                     _scheduleSave();
                   },
@@ -657,6 +768,8 @@ class _UpdaterPageState extends State<UpdaterPage>
                   _showStatus();
                 case 'share':
                   _shareLog();
+                case 'history':
+                  _showHistory();
                 case 'settings':
                   _openSettings();
               }
@@ -668,6 +781,7 @@ class _UpdaterPageState extends State<UpdaterPage>
               PopupMenuItem(
                   value: 'status', child: Text('Status / Logs anzeigen')),
               PopupMenuItem(value: 'share', child: Text('Log teilen')),
+              PopupMenuItem(value: 'history', child: Text('Verlauf')),
               PopupMenuDivider(),
               PopupMenuItem(value: 'settings', child: Text('Einstellungen')),
             ],
