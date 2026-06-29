@@ -89,6 +89,26 @@ void main() {
     expect(store.saved.active.host, '192.168.1.50');
   });
 
+  testWidgets('adds a profile from the default config without crashing',
+      (tester) async {
+    useTallScreen(tester);
+    final store = _FakeStore(); // AppConfig.initial → const profiles list
+    await tester.pumpWidget(MaterialApp(
+      home: UpdaterPage(store: store, updateChecker: _noUpdateChecker),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Neues Profil'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Name'), 'Eltern');
+    await tester.tap(find.widgetWithText(FilledButton, 'OK'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1)); // drain the auto-save debounce
+
+    expect(store.saved.profiles.length, 2);
+    expect(store.saved.profiles.last.name, 'Eltern');
+  });
+
   testWidgets('shows the lock screen when app-lock is on and not unlocked',
       (tester) async {
     useTallScreen(tester);

@@ -126,6 +126,18 @@ class SettingsStore {
     await _storage.write(key: _kChannel, value: s.channel);
     await _storage.write(key: _kAutoCheck, value: s.autoCheck.toString());
   }
+
+  /// Deletes the legacy flat keys (called after migrating to the profile-based
+  /// config, so no stale credential copy lingers).
+  Future<void> clear() async {
+    for (final k in const [
+      _kHost, _kPort, _kUser, _kPassword, _kFullUpgrade, _kAuthMode,
+      _kPrivateKey, _kKeyPassphrase, _kUiScheme, _kUiPort, _kLockEnabled,
+      _kThemeMode, _kChannel, _kAutoCheck,
+    ]) {
+      await _storage.delete(key: k);
+    }
+  }
 }
 
 /// Persists the action history (JSON array) in secure storage.

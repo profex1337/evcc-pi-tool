@@ -204,9 +204,11 @@ class AppConfigStore {
   Future<AppConfig> load() async {
     final raw = await _storage.read(key: _key);
     if (raw != null && raw.isNotEmpty) return parseAppConfig(raw);
-    // First run after the multi-profile update: migrate the old flat settings.
+    // First run after the multi-profile update: migrate the old flat settings,
+    // then purge the legacy keys so no stale credential copy lingers.
     final migrated = migrateFromSettings(await _legacy.load());
     await save(migrated);
+    await _legacy.clear();
     return migrated;
   }
 

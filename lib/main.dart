@@ -125,7 +125,7 @@ class _UpdaterPageState extends State<UpdaterPage>
   String _themeMode = 'system';
   String _channel = 'stable';
   bool _autoCheck = false;
-  List<Profile> _profiles = const [Profile(name: 'Standard')];
+  List<Profile> _profiles = [const Profile(name: 'Standard')]; // growable
   int _activeIndex = 0;
 
   final List<String> _log = [];
@@ -189,7 +189,7 @@ class _UpdaterPageState extends State<UpdaterPage>
     final cfg = await _store.load();
     if (!mounted) return;
     setState(() {
-      _profiles = cfg.profiles;
+      _profiles = List.of(cfg.profiles); // always growable, never the const fallback
       _activeIndex = cfg.safeIndex;
       _uiScheme = cfg.uiScheme;
       _uiPort.text = cfg.uiPort;
@@ -278,7 +278,7 @@ class _UpdaterPageState extends State<UpdaterPage>
 
   Future<void> _addProfile() async {
     final name = await _promptName('Neues Profil', '');
-    if (name == null) return;
+    if (name == null || !mounted) return;
     _profiles[_activeIndex] = _currentProfile();
     final next = [..._profiles, Profile(name: name)];
     setState(() {
@@ -293,7 +293,7 @@ class _UpdaterPageState extends State<UpdaterPage>
     final current =
         _activeIndex < _profiles.length ? _profiles[_activeIndex].name : '';
     final name = await _promptName('Profil umbenennen', current);
-    if (name == null) return;
+    if (name == null || !mounted) return;
     setState(() {
       _profiles[_activeIndex] = _currentProfile().copyWith(name: name);
     });
@@ -312,29 +312,11 @@ class _UpdaterPageState extends State<UpdaterPage>
   }
 
   Future<String?> _promptName(String title, String initial) async {
-    final ctrl = TextEditingController(text: initial);
     final name = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Name'),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Abbrechen')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
+      builder: (ctx) => _NameDialog(title: title, initial: initial),
     );
-    ctrl.dispose();
-    return (name != null && name.isNotEmpty) ? name : null;
+    return (name != null && name.trim().isNotEmpty) ? name.trim() : null;
   }
 
   Future<void> _checkForUpdate() async {
@@ -1287,6 +1269,51 @@ class _ConnectionCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Dialog that owns its text controller (disposed via its own State lifecycle,
+/// so it isn't used-after-dispose during the dialog's exit animation).
+class _NameDialog extends StatefulWidget {
+  const _NameDialog({required this.title, required this.initial});
+
+  final String title;
+  final String initial;
+
+  @override
+  State<_NameDialog> createState() => _NameDialogState();
+}
+
+class _NameDialogState extends State<_NameDialog> {
+  late final TextEditingController _ctrl =
+      TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _ctrl,
+        autofocus: true,
+        decoration: const InputDecoration(labelText: 'Name'),
+        onSubmitted: (v) => Navigator.pop(context, v),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Abbrechen')),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _ctrl.text),
+          child: const Text('OK'),
+        ),
+      ],
     );
   }
 }
