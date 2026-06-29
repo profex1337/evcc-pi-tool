@@ -507,4 +507,113 @@ void main() {
       expect(runner.commandsRun, contains(statusCommand));
     });
   });
+
+  group('EvccUpdater.detectInstall', () {
+    test('apt: a dpkg version means an apt install + service state', () async {
+      final runner = FakeSshRunner({
+        _vQuery: [_r('0.310.0\n')],
+        _svc: [_r('active\n')],
+      });
+
+      final d =
+          await _updaterWith(runner).detectInstall(config: _config, onLog: (_) {});
+
+      expect(d.kind, InstallKind.apt);
+      expect(d.aptVersion, '0.310.0');
+      expect(d.serviceActive, isTrue);
+      // Detection must not touch docker when apt is present.
+      expect(runner.commandsRun, isNot(contains(dockerListCommand)));
+    });
+
+    test('docker: no apt package but an evcc container (no sudo needed)',
+        () async {
+      final runner = FakeSshRunner({
+        _vQuery: [_r('\n')],
+        dockerListCommand: [_r('db|postgres:16\nevcc|evcc/evcc:latest\n')],
+      });
+
+      final d =
+          await _updaterWith(runner).detectInstall(config: _config, onLog: (_) {});
+
+      expect(d.kind, InstallKind.docker);
+      expect(d.container!.name, 'evcc');
+      expect(d.dockerNeedsSudo, isFalse);
+    });
+
+    test('docker: retries via sudo when the daemon denies access', () async {
+      final runner = FakeSshRunner({
+        _vQuery: [_r('\n')],
+        dockerListCommand: [
+          _r('',
+              stderr: 'permission denied while trying to connect to the '
+                  'Docker daemon socket',
+              exitCode: 1)
+        ],
+        dockerListSudoCommand: [_r('evcc|evcc/evcc:latest\n')],
+      });
+
+      final d =
+          await _updaterWith(runner).detectInstall(config: _config, onLog: (_) {});
+
+      expect(d.kind, InstallKind.docker);
+      expect(d.dockerNeedsSudo, isTrue);
+      expect(runner.stdinByCommand[dockerListSudoCommand], 'sekret\n');
+    });
+
+    test('unknown: neither apt package nor docker container', () async {
+      final runner = FakeSshRunner({
+        _vQuery: [_r('\n')],
+        dockerListCommand: [_r('', stderr: 'bash: docker: command not found')],
+      });
+
+      final d =
+          await _updaterWith(runner).detectInstall(config: _config, onLog: (_) {});
+
+      expect(d.kind, InstallKind.unknown);
+    });
+  });
+
+  group('EvccUpdater.updateDocker', () {
+    final detection = InstallDetection(
+      kind: InstallKind.docker,
+      container: const EvccDocker(name: 'evcc', image: 'evcc/evcc:latest'),
+    );
+    final inspectCmd = dockerInspectCommand('evcc');
+    const shell = 'bash -s';
+
+    test('compose-managed: pulls + recreates, then verifies it is running',
+        () async {
+      final runner = FakeSshRunner({
+        inspectCmd: [
+          _r('/home/pi/evcc|/home/pi/evcc/docker-compose.yml|evcc\n')
+        ],
+        shell: [_r('Pulling evcc ... done\nRecreating evcc ... done', exitCode: 0)],
+        dockerListCommand: [_r('evcc|evcc/evcc:latest\n')],
+      });
+
+      await _updaterWith(runner).updateDocker(
+        config: _config,
+        detection: detection,
+        onLog: (_) {},
+      );
+
+      final stdin = runner.stdinByCommand[shell]!;
+      expect(stdin, contains("docker compose pull 'evcc'"));
+      expect(stdin, contains("docker compose up -d 'evcc'"));
+    });
+
+    test('non-compose container: refuses and tells the user to update manually',
+        () async {
+      final runner = FakeSshRunner({
+        inspectCmd: [_r('<no value>|<no value>|<no value>\n')],
+      });
+
+      await expectLater(
+        _updaterWith(runner).updateDocker(
+            config: _config, detection: detection, onLog: (_) {}),
+        throwsA(isA<EvccUpdateException>()
+            .having((e) => e.message, 'message', contains('docker compose'))),
+      );
+    });
+  });
 }

@@ -1,5 +1,6 @@
 import 'package:evcc_updater/main.dart';
 import 'package:evcc_updater/src/authenticator.dart';
+import 'package:evcc_updater/src/evcc_api.dart';
 import 'package:evcc_updater/src/profiles.dart';
 import 'package:evcc_updater/src/update_check.dart';
 import 'package:flutter/material.dart';
@@ -107,6 +108,76 @@ void main() {
 
     expect(store.saved.profiles.length, 2);
     expect(store.saved.profiles.last.name, 'Eltern');
+  });
+
+  testWidgets('Pi finden fills the host field from a scan result',
+      (tester) async {
+    useTallScreen(tester);
+    final store = _FakeStore();
+    await tester.pumpWidget(MaterialApp(
+      home: UpdaterPage(
+        store: store,
+        updateChecker: _noUpdateChecker,
+        piFinder: () async => ['192.168.178.50'],
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pi im Netzwerk suchen'));
+    await tester.pumpAndSettle();
+
+    // Results sheet lists the host; tapping it adopts the IP.
+    await tester.tap(find.text('192.168.178.50'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1)); // drain the auto-save debounce
+
+    expect(store.saved.active.host, '192.168.178.50');
+  });
+
+  testWidgets('evcc-Status sheet renders live values from the API',
+      (tester) async {
+    useTallScreen(tester);
+    final api = EvccApiClient(getJson: (_) async => {
+          'result': {
+            'version': '0.123.1',
+            'siteTitle': 'Zuhause',
+            'pvPower': 2500,
+            'gridPower': -1000,
+            'homePower': 800,
+            'loadpoints': [
+              {
+                'title': 'Garage',
+                'charging': true,
+                'chargePower': 11000,
+                'vehicleSoc': 62,
+                'mode': 'pv',
+              }
+            ],
+          }
+        });
+    final store = _FakeStore(const AppConfig(
+      profiles: [Profile(name: 'Standard', host: '192.168.178.64')],
+      activeIndex: 0,
+    ));
+    await tester.pumpWidget(MaterialApp(
+      home: UpdaterPage(
+        store: store,
+        updateChecker: _noUpdateChecker,
+        apiClient: api,
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('evcc-Status (Live)'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Zuhause'), findsOneWidget);
+    expect(find.text('Garage'), findsOneWidget);
+    expect(find.text('2,5 kW'), findsOneWidget); // PV
   });
 
   testWidgets('shows the lock screen when app-lock is on and not unlocked',

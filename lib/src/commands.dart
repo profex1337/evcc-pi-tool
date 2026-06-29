@@ -27,8 +27,125 @@ class SshStep {
   });
 }
 
+/// How evcc is installed on the Pi.
+enum InstallKind { apt, docker, unknown }
+
 /// Reads the installed version of the `evcc` package (no sudo needed).
 const String versionQuery = r"dpkg-query -W -f='${Version}' evcc";
+
+/// Lists running containers as `name|image` lines (no sudo).
+const String dockerListCommand = "docker ps --format '{{.Names}}|{{.Image}}'";
+
+/// Same, but via sudo for hosts where the user isn't in the `docker` group.
+const String dockerListSudoCommand =
+    "sudo -S docker ps --format '{{.Names}}|{{.Image}}'";
+
+/// A running evcc Docker container (its name + image).
+class EvccDocker {
+  final String name;
+  final String image;
+  const EvccDocker({required this.name, required this.image});
+}
+
+/// docker-compose project metadata read off a container's labels.
+class DockerComposeInfo {
+  final String workingDir;
+  final String configFile;
+  final String service;
+  const DockerComposeInfo({
+    required this.workingDir,
+    required this.configFile,
+    required this.service,
+  });
+}
+
+/// Decides how evcc is installed from a `dpkg-query` result and a `docker ps`
+/// listing. apt takes precedence (it's the supported install); a running evcc
+/// container is the Docker case; otherwise unknown.
+InstallKind classifyInstall({
+  required String dpkgOutput,
+  required String dockerPs,
+}) {
+  if (dpkgOutput.trim().isNotEmpty) return InstallKind.apt;
+  if (parseEvccDocker(dockerPs) != null) return InstallKind.docker;
+  return InstallKind.unknown;
+}
+
+/// Finds the evcc container in a `name|image`-per-line listing, matching on
+/// either the image or the container name. Returns null when none is present.
+EvccDocker? parseEvccDocker(String dockerPs) {
+  for (final line in dockerPs.split('\n')) {
+    final t = line.trim();
+    if (t.isEmpty) continue;
+    final parts = t.split('|');
+    if (parts.length < 2) continue;
+    final name = parts[0].trim();
+    final image = parts[1].trim();
+    if (image.toLowerCase().contains('evcc') ||
+        name.toLowerCase().contains('evcc')) {
+      return EvccDocker(name: name, image: image);
+    }
+  }
+  return null;
+}
+
+/// Whether docker output indicates the user lacks daemon access (so the command
+/// should be retried via sudo). Distinct from "docker not installed".
+bool isDockerPermissionError(String output) {
+  final o = output.toLowerCase();
+  return o.contains('permission denied') &&
+          (o.contains('docker daemon') || o.contains('docker.sock')) ||
+      o.contains('cannot connect to the docker daemon');
+}
+
+/// `docker inspect` that prints `workingDir|configFile|service` from the
+/// compose labels (or `<no value>` for each missing label).
+String dockerInspectCommand(String container) =>
+    "docker inspect '$container' --format "
+    '\'{{ index .Config.Labels "com.docker.compose.project.working_dir"}}|'
+    '{{ index .Config.Labels "com.docker.compose.project.config_files"}}|'
+    '{{ index .Config.Labels "com.docker.compose.service"}}\'';
+
+/// sudo variant of [dockerInspectCommand].
+String dockerInspectSudoCommand(String container) =>
+    'sudo -S ${dockerInspectCommand(container)}';
+
+/// Parses the `workingDir|configFile|service` line from [dockerInspectCommand].
+/// Returns null unless both a working dir and a service name are present (i.e.
+/// the container really is docker-compose-managed).
+DockerComposeInfo? parseComposeInfo(String inspectOutput) {
+  final line = inspectOutput
+      .split('\n')
+      .map((l) => l.trim())
+      .firstWhere((l) => l.isNotEmpty, orElse: () => '');
+  if (line.isEmpty) return null;
+  final parts = line.split('|');
+  String at(int i) {
+    if (i >= parts.length) return '';
+    final v = parts[i].trim();
+    return v == '<no value>' ? '' : v;
+  }
+
+  final workingDir = at(0);
+  final service = at(2);
+  if (workingDir.isEmpty || service.isEmpty) return null;
+  return DockerComposeInfo(
+    workingDir: workingDir,
+    configFile: at(1),
+    service: service,
+  );
+}
+
+/// The root/bash script that updates a compose-managed evcc: pull the image,
+/// then recreate only the evcc service in its project directory.
+String dockerComposeUpdateScript(DockerComposeInfo info) {
+  return '''
+set -e
+cd '${info.workingDir}'
+docker compose pull '${info.service}'
+docker compose up -d '${info.service}'
+''';
+}
 
 /// Queries whether the evcc service is running (no sudo needed).
 const String serviceStatus = 'systemctl is-active evcc';

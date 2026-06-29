@@ -48,6 +48,27 @@ class InstallResult {
   const InstallResult({required this.version, required this.serviceActive});
 }
 
+/// How evcc is installed on a given Pi, with the facts needed to update it.
+class InstallDetection {
+  final InstallKind kind;
+
+  /// apt: the installed package version + service state.
+  final String? aptVersion;
+  final bool serviceActive;
+
+  /// docker: the running evcc container, and whether docker needs sudo here.
+  final EvccDocker? container;
+  final bool dockerNeedsSudo;
+
+  const InstallDetection({
+    required this.kind,
+    this.aptVersion,
+    this.serviceActive = false,
+    this.container,
+    this.dockerNeedsSudo = false,
+  });
+}
+
 /// Builds the [SshRunner] for a given config (injected so tests can fake SSH).
 typedef SshRunnerFactory = SshRunner Function(SshConfig config);
 
@@ -246,6 +267,159 @@ class EvccUpdater {
 
         log('evcc $version installiert, Dienst ${active ? 'aktiv' : 'inaktiv'}.');
         return InstallResult(version: version, serviceActive: active);
+      },
+    );
+  }
+
+  /// Detects how evcc is installed on the Pi (apt package, Docker container, or
+  /// neither) using only read-only probes. Used to pick the right update path.
+  ///
+  /// apt wins when the package is present. Otherwise it lists running
+  /// containers — first without sudo, then via `sudo -S docker ps` if the
+  /// daemon denies access — and reports a Docker install when an evcc container
+  /// is running. Nothing is changed.
+  Future<InstallDetection> detectInstall({
+    required SshConfig config,
+    required void Function(String line) onLog,
+  }) {
+    return _withConnection<InstallDetection>(
+      config: config,
+      onLog: onLog,
+      body: (runner, log) async {
+        log('Erkenne Installationsart …');
+
+        final dpkg = await runner.run(versionQuery);
+        final aptVersion = parseInstalledVersion(dpkg.stdout);
+        if (aptVersion != null) {
+          final svc = await runner.run(serviceStatus);
+          log('Gefunden: evcc $aptVersion als apt-Paket.');
+          return InstallDetection(
+            kind: InstallKind.apt,
+            aptVersion: aptVersion,
+            serviceActive: isServiceActive(svc.stdout),
+          );
+        }
+
+        // No apt package — look for a running evcc Docker container.
+        var listing = await runner.run(dockerListCommand);
+        var needsSudo = false;
+        if (isDockerPermissionError('${listing.stdout}\n${listing.stderr}')) {
+          needsSudo = true;
+          listing = await runner.run(
+            dockerListSudoCommand,
+            stdin: '${config.password}\n',
+          );
+          if (isSudoPasswordFailure('${listing.stdout}\n${listing.stderr}')) {
+            throw const EvccUpdateException(
+              UpdateErrorKind.sudo,
+              'sudo hat das Passwort abgelehnt – stimmt das Pi-Passwort?',
+            );
+          }
+        }
+
+        final container = parseEvccDocker(listing.stdout);
+        if (container != null) {
+          log('Gefunden: evcc im Docker-Container "${container.name}".');
+          return InstallDetection(
+            kind: InstallKind.docker,
+            container: container,
+            dockerNeedsSudo: needsSudo,
+          );
+        }
+
+        log('Weder ein evcc-apt-Paket noch ein evcc-Docker-Container gefunden.');
+        return const InstallDetection(kind: InstallKind.unknown);
+      },
+    );
+  }
+
+  /// Updates a Docker-deployed evcc by pulling the image and recreating the
+  /// container via `docker compose` in its project directory. Only works when
+  /// the container is compose-managed; a plain `docker run` container is
+  /// reported as not auto-updatable. Experimental.
+  Future<void> updateDocker({
+    required SshConfig config,
+    required InstallDetection detection,
+    required void Function(String line) onLog,
+  }) {
+    return _withConnection<void>(
+      config: config,
+      onLog: onLog,
+      body: (runner, log) async {
+        final container = detection.container;
+        if (container == null) {
+          throw const EvccUpdateException(
+            UpdateErrorKind.unknown,
+            'Kein evcc-Docker-Container erkannt.',
+          );
+        }
+        final sudo = detection.dockerNeedsSudo;
+        log('evcc-Container "${container.name}" (${container.image}).');
+
+        final inspectCmd = sudo
+            ? dockerInspectSudoCommand(container.name)
+            : dockerInspectCommand(container.name);
+        log('\$ $inspectCmd');
+        final inspect = await runner.run(
+          inspectCmd,
+          stdin: sudo ? '${config.password}\n' : null,
+        );
+        if (sudo &&
+            isSudoPasswordFailure('${inspect.stdout}\n${inspect.stderr}')) {
+          throw const EvccUpdateException(
+            UpdateErrorKind.sudo,
+            'sudo hat das Passwort abgelehnt – stimmt das Pi-Passwort?',
+          );
+        }
+
+        final compose = parseComposeInfo(inspect.stdout);
+        if (compose == null) {
+          throw EvccUpdateException(
+            UpdateErrorKind.unknown,
+            'Der evcc-Container wird nicht über docker compose verwaltet – '
+            'ein automatisches Update ist hier nicht möglich. Bitte das Image '
+            '"${container.image}" manuell aktualisieren.',
+          );
+        }
+
+        log('Aktualisiere via docker compose in ${compose.workingDir} '
+            '(Dienst ${compose.service}) …');
+        final script = dockerComposeUpdateScript(compose);
+        final shell = sudo ? installShellCommand : 'bash -s';
+        final result = await runner.run(
+          shell,
+          stdin: sudo ? '${config.password}\n$script\n' : '$script\n',
+          onOutput: (chunk) {
+            final t = chunk.trimRight();
+            if (t.isNotEmpty) log(t);
+          },
+        );
+        final combined = '${result.stdout}\n${result.stderr}';
+        if (sudo && isSudoPasswordFailure(combined)) {
+          throw const EvccUpdateException(
+            UpdateErrorKind.sudo,
+            'sudo hat das Passwort abgelehnt – stimmt das Pi-Passwort?',
+          );
+        }
+        if (result.exitCode != null && result.exitCode != 0) {
+          throw EvccUpdateException(
+            UpdateErrorKind.unknown,
+            'Docker-Update fehlgeschlagen (Exit ${result.exitCode}). '
+            'Details im Log.',
+          );
+        }
+
+        final verify = await runner.run(
+          sudo ? dockerListSudoCommand : dockerListCommand,
+          stdin: sudo ? '${config.password}\n' : null,
+        );
+        if (parseEvccDocker(verify.stdout) == null) {
+          throw const EvccUpdateException(
+            UpdateErrorKind.serviceInactive,
+            'evcc-Container läuft nach dem Update nicht.',
+          );
+        }
+        log('Fertig – evcc-Container läuft wieder.');
       },
     );
   }

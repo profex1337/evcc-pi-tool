@@ -1,20 +1,42 @@
 # evcc Pi-Tool
 
-Schlanke **Android-App** (clean minimal dark), die [evcc](https://evcc.io) auf
-einem Raspberry Pi **per Knopfdruck via SSH aktualisiert** — und es bei Bedarf
-auch **installieren** kann. IP + Pi-Zugang eintragen, tippen, fertig. Für mich +
-Freunde, Verteilung als **APK über GitHub Releases**.
+Schlanke **Android-App** (clean minimal, Hell/Dunkel/System), die
+[evcc](https://evcc.io) auf einem Raspberry Pi **per Knopfdruck via SSH
+aktualisiert** — und es bei Bedarf auch **installieren** kann. IP + Pi-Zugang
+eintragen, tippen, fertig. Für mich + Freunde, Verteilung als **APK über GitHub
+Releases**.
 
-> ⚠️ Hinweis: Die App führt mit deinem eingegebenen Passwort `sudo apt-get`
-> auf dem Pi aus. Nutze sie nur für Geräte, die dir gehören.
+> ⚠️ Hinweis: Die App führt mit deinem eingegebenen Passwort `sudo`-Befehle
+> (`apt`, `systemctl`, ggf. `docker compose`) auf dem Pi aus. Nutze sie nur für
+> Geräte, die dir gehören.
 >
 > ℹ️ **Inoffizielles** Community-Tool, nicht mit dem evcc-Projekt verbunden.
 > Für die tägliche Lade-Steuerung gibt es die
 > [offizielle evcc-App](https://play.google.com/store/apps/details?id=io.evcc.android).
 
+## Funktionen
+
+- **evcc aktualisieren** per Knopfdruck — erkennt automatisch, ob evcc als
+  **apt-Paket** oder im **Docker-Container** läuft, und nimmt den passenden Weg.
+- **Probelauf** (`--dry-run`) — zeigt gefahrlos, ob ein Update verfügbar ist.
+- **Verbindung testen** — Host/Zugang in Sekunden prüfen, ohne etwas zu ändern.
+- **evcc installieren** auf einem frischen Pi (offizielles apt-Repo).
+- **evcc-Status (Live)** — liest die aktuellen Werte direkt aus der evcc-Web-API
+  (PV, Netz, Hausverbrauch, Batterie, Ladepunkte), rein lesend.
+- **Pi im Netzwerk suchen** — findet im selben WLAN Geräte mit offenem
+  SSH-Port und übernimmt die IP per Tippen.
+- **Mehrere Pi-Profile** — pro Pi ein benanntes Profil, schnell umschaltbar.
+- **SSH-Key- oder Passwort-Login**, **App-Sperre** (Biometrie/PIN),
+  **stable/nightly**-Kanal, **Update-Verlauf**, **In-App-Update-Hinweis**.
+- **Dienst-/System-Aktionen:** evcc-Dienst neustarten, Pi neustarten, `systemctl
+  status` ansehen, Live-Log teilen.
+
 ## Was die App macht
 
-Beim Tippen auf **„evcc aktualisieren"** läuft genau die validierte SSH-Sequenz:
+Beim Tippen auf **„evcc aktualisieren"** erkennt die App zuerst die
+Installationsart und nimmt dann den passenden Weg:
+
+**apt-Installation** (Standard auf dem Pi) — die validierte SSH-Sequenz:
 
 1. Version vorher: `dpkg-query -W -f='${Version}' evcc`
 2. `sudo -S apt-get update -qq`
@@ -26,21 +48,44 @@ Beim Tippen auf **„evcc aktualisieren"** läuft genau die validierte SSH-Seque
    bzw. „war schon aktuell").
 
 Der Dienst startet beim apt-Upgrade automatisch neu. Mit **„Probelauf (ändert
-nichts)"** läuft dieselbe Sequenz mit `--dry-run` — nichts wird verändert,
-ideal zum gefahrlosen Testen, ob ein Update verfügbar ist.
+nichts)"** läuft dieselbe Sequenz mit `--dry-run` — nichts wird verändert.
 
-Mit **„Verbindung testen"** prüfst du in Sekunden, ob Host/Port/Benutzer/Passwort
-stimmen: die App verbindet, liest die evcc-Version und den Dienststatus — **ohne
-`sudo`/`apt`**, also ohne irgendetwas anzufassen.
+**Docker-Installation** — läuft evcc in einem Container, aktualisiert die App
+ihn über docker compose im Projektverzeichnis des Containers:
+`docker compose pull <service>` → `docker compose up -d <service>`. Funktioniert
+für **compose-verwaltete** Container; ein reiner `docker run`-Container wird
+erkannt und sauber gemeldet (manuelles Update nötig). Docker-Befehle laufen bei
+Bedarf automatisch über `sudo`.
+
+Mit **„Verbindung testen"** prüfst du in Sekunden, ob Host/Port/Benutzer/Zugang
+stimmen: die App verbindet, erkennt die Installationsart (apt/Docker) und
+meldet Version bzw. Container — **ohne irgendetwas zu verändern**.
+
+### evcc-Status (Live)
+
+Über das ⋮-Menü → **„evcc-Status (Live)"** liest die App die aktuellen Werte
+**direkt aus der evcc-Web-API** (`GET http://<pi>:7070/api/state`) und zeigt
+PV-Erzeugung, Netz, Hausverbrauch, Batterie-Ladestand und die Ladepunkte. Rein
+lesend über HTTP — **kein SSH, keine Zugangsdaten**. Die App ist robust gegen
+verschiedene evcc-Versionen (mit/ohne `result`-Hülle, fehlende Felder).
+
+### Pi im Netzwerk finden
+
+⋮-Menü → **„Pi im Netzwerk suchen"** scannt das lokale `/24`-Netz nach Geräten
+mit offenem **SSH-Port (22)** und listet sie auf — Tippen übernimmt die IP ins
+Host-Feld. Funktioniert nur im **selben WLAN**; findet die App nichts, einfach
+die IP von Hand eintragen.
 
 ### evcc installieren
 
 Über den Button **„evcc installieren"** (Abschnitt „Erstinstallation auf neuem
-Pi") richtet die App evcc auf einem frisch konfigurierten Pi ein (nach [offizieller evcc-Doku](https://docs.evcc.io/en/installation/linux)):
-offizielles apt-Repo via `setup.deb.sh` hinzufügen → `apt install -y evcc` →
-`systemctl enable --now evcc`. Alles läuft als root über **einen** `sudo -S bash -s`
--Aufruf (Passwort als erste stdin-Zeile, **nie** in der Befehlszeile). Danach
-zeigt die App **„Einrichtung öffnen"** → `http://<pi>:7070`.
+Pi") richtet die App evcc auf einem frisch konfigurierten Pi ein (nach
+[offizieller evcc-Doku](https://docs.evcc.io/en/installation/linux)): offizielles
+apt-Repo via `setup.deb.sh` hinzufügen → `apt install -y evcc` →
+`systemctl enable --now evcc`. Alles läuft als root über **einen** `sudo -S bash
+-s`-Aufruf (Passwort als erste stdin-Zeile, **nie** in der Befehlszeile). Danach
+zeigt die App **„Einrichtung öffnen"** → `http://<pi>:7070`. Über die
+Einstellungen lässt sich vorab der **nightly-Kanal** (unstable) wählen.
 
 ## Installation (Sideload)
 
@@ -57,20 +102,31 @@ zeigt die App **„Einrichtung öffnen"** → `http://<pi>:7070`.
 | **Host / IP** | IP des Pi (z. B. `192.168.178.64`) oder Tailscale-IP | – |
 | **Benutzer** | SSH-Benutzer | `pi` |
 | **Port** | SSH-Port | `22` |
-| **Passwort** | Pi-Passwort (für SSH + `sudo`) | – |
+| **Login** | **Passwort** oder **SSH-Key** (PEM, optional mit Passphrase) | Passwort |
+| **Passwort** | Pi-Passwort für SSH + `sudo` (bei Key-Login: nur für `sudo`) | – |
 | **Komplettes System-Upgrade** | Aus = nur evcc; Ein = alle apt-Pakete | Aus |
 
-Eingaben werden **verschlüsselt im Android Keystore** gespeichert
-(`flutter_secure_storage`) — einmal eintragen, danach nur noch tippen.
+Mehrere Pis verwaltest du über die **Profilleiste** oben (umschalten, anlegen,
+umbenennen, löschen). In den **Einstellungen** (⋮-Menü): App-Sperre per
+Biometrie/PIN, Status beim Start prüfen, HTTPS + Port der evcc-Oberfläche,
+Design (System/Hell/Dunkel), nightly-Kanal.
+
+Alle Eingaben werden **verschlüsselt im Android Keystore** gespeichert
+(`flutter_secure_storage`) und automatisch gesichert — einmal eintragen, danach
+nur noch tippen.
 
 ## Sicherheit
 
-- Das Passwort liegt **nur verschlüsselt** im Keystore, niemals im Klartext.
-- Es wird der `sudo`-Abfrage **über stdin** übergeben (`sudo -S`), **nie** als
-  Teil der Befehlszeile — und aus der sichtbaren Log-Ausgabe **herausgefiltert**.
+- Passwort und SSH-Key liegen **nur verschlüsselt** im Keystore, nie im Klartext.
+- Das `sudo`-Passwort wird der Abfrage **über stdin** übergeben (`sudo -S`),
+  **nie** als Teil der Befehlszeile — und aus dem sichtbaren Log
+  **herausgefiltert**.
+- Der **Live-Status** nutzt nur lesendes HTTP gegen die evcc-Oberfläche — dabei
+  werden **keine** Zugangsdaten gesendet.
 - Kein Account, kein Cloud-Backend. Annahme: LAN-Nutzung (zuhause im WLAN).
   Remote optional über **Tailscale-IP** (kein Portforwarding nötig).
-- `sudo -S` funktioniert auch ohne passwortloses sudo.
+- Optionale **App-Sperre** per Biometrie/PIN; der Bildschirm ist gegen
+  Screenshots/Recents geschützt (`FLAG_SECURE`).
 - **Host-Key-Verifizierung (TOFU):** Der SSH-Host-Key wird beim ersten Connect
   gemerkt und danach geprüft. Ändert er sich (möglicher MITM oder neu
   aufgesetzter Pi), **blockiert** die App und sendet kein Passwort — erst nach
@@ -85,15 +141,15 @@ Android-Toolchain** nötig.
 - Trigger: Push auf `main` (baut + testet) und Tag `v*` (baut + signiert +
   legt ein **Release mit `app-release.apk`** an).
 - Schritte: `flutter pub get` → `flutter analyze` → `flutter test` →
-  `flutter build apk --release`, signiert mit einem Release-Keystore aus den
-  Repo-Secrets.
+  `flutter build apk --release` (arm64), signiert mit einem Release-Keystore aus
+  den Repo-Secrets. Zusätzlich entsteht ein **`.aab`** für den Play Store.
 
 ### Ein neues Release veröffentlichen
 
 ```bash
-# Version in pubspec.yaml anheben (z. B. 0.1.1+2), committen, dann:
-git tag v0.1.1
-git push origin v0.1.1
+# Version in pubspec.yaml anheben (z. B. 0.8.0+16), committen, dann:
+git tag v0.8.0
+git push origin v0.8.0
 ```
 
 CI baut die signierte APK und hängt sie ans GitHub-Release.
@@ -116,7 +172,7 @@ CI baut die signierte APK und hängt sie ans GitHub-Release.
 Beide Wege funktionieren parallel, ohne sich zu stören:
 
 - **Sideload (Standard):** Die signierte **`app-release.apk`** am `v*`-Release —
-  Freunde laden + installieren direkt, ohne Konto. Ändert sich nichts.
+  Freunde laden + installieren direkt, ohne Konto.
 - **Play Store (optional):** Derselbe CI-Lauf erzeugt zusätzlich ein **`.aab`**
   (App Bundle) als Artifact **`evcc-pi-tool-playstore-aab`**. Damit ist alles für
   eine Play-Einreichung vorbereitet:
@@ -131,9 +187,9 @@ Beide Wege funktionieren parallel, ohne sich zu stören:
 ## Haftungsausschluss
 
 Inoffizielles Community-Tool, **nicht** mit dem evcc-Projekt verbunden. Die App
-führt mit deinen Zugangsdaten `sudo`-Befehle (`apt`, `systemctl`, `reboot`) auf
-deinem Gerät aus. **Nutzung auf eigene Gefahr — keine Haftung für Schäden an
-System, Daten oder Hardware.** Lizenz: [MIT](LICENSE) („AS IS", ohne
+führt mit deinen Zugangsdaten `sudo`-Befehle (`apt`, `systemctl`, `reboot`,
+`docker`) auf deinem Gerät aus. **Nutzung auf eigene Gefahr — keine Haftung für
+Schäden an System, Daten oder Hardware.** Lizenz: [MIT](LICENSE) („AS IS", ohne
 Gewährleistung).
 
 ## Entwicklung
@@ -144,13 +200,22 @@ flutter analyze
 flutter test
 ```
 
-Die Architektur trennt **testbare reine Logik** (Kommando-Bau, Output-Parsing,
-Ergebnis-Zusammenfassung in `lib/src/commands.dart` + `lib/src/parsing.dart`)
-von der **SSH-/Update-Orchestrierung** (`lib/src/evcc_updater.dart`, hinter dem
-`SshRunner`-Interface für Unit-Tests ohne echtes SSH) und der **UI**
-(`lib/main.dart`). Die SSH-Mechanik selbst steckt im dünnen Adapter
-`lib/src/dartssh2_runner.dart`.
+Die Architektur trennt **testbare reine Logik** von I/O:
+
+- `lib/src/commands.dart` — Kommando-Bau + Docker-/Install-Erkennung
+- `lib/src/parsing.dart` — Output-Parsing + Ergebnis-Zusammenfassung
+- `lib/src/evcc_updater.dart` — SSH-/Update-Orchestrierung hinter dem
+  `SshRunner`-Interface (Unit-Tests ohne echtes SSH); `dartssh2_runner.dart` ist
+  der dünne reale Adapter
+- `lib/src/evcc_api.dart` — read-only evcc-Web-API-Client + defensiver Parser
+- `lib/src/network_scan.dart` — Subnetz-Scan für „Pi finden"
+- `lib/src/profiles.dart` / `settings_store.dart` — verschlüsselte Config
+- `lib/main.dart` — UI
+
+Tests: `flutter test` (reine Logik via TDD, Updater via `FakeSshRunner`,
+Widget-Tests mit injizierten Fakes).
 
 ## Roadmap
 
 - iOS: bewusst später. Die Flutter-Codebasis hält die Tür offen.
+- Docker-Update auch für nicht-compose-Container (derzeit nur gemeldet).

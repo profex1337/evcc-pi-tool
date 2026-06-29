@@ -6,8 +6,11 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'src/authenticator.dart';
+import 'src/commands.dart';
+import 'src/evcc_api.dart';
 import 'src/evcc_updater.dart';
 import 'src/history.dart';
+import 'src/network_scan.dart';
 import 'src/parsing.dart';
 import 'src/profiles.dart';
 import 'src/settings_store.dart';
@@ -84,12 +87,18 @@ class UpdaterPage extends StatefulWidget {
     this.updater,
     this.updateChecker,
     this.authenticator,
+    this.apiClient,
+    this.piFinder,
   });
 
   final AppConfigStore? store;
   final EvccUpdater? updater;
   final UpdateChecker? updateChecker;
   final Authenticator? authenticator;
+  final EvccApiClient? apiClient;
+
+  /// Discovers reachable SSH hosts on the local network. Injectable for tests.
+  final Future<List<String>> Function()? piFinder;
 
   @override
   State<UpdaterPage> createState() => _UpdaterPageState();
@@ -103,6 +112,9 @@ class _UpdaterPageState extends State<UpdaterPage>
       widget.updateChecker ?? UpdateChecker();
   late final Authenticator _authenticator =
       widget.authenticator ?? LocalAuthenticator();
+  late final EvccApiClient _apiClient = widget.apiClient ?? EvccApiClient();
+  late final Future<List<String>> Function() _piFinder =
+      widget.piFinder ?? findSshHosts;
   final HistoryStore _historyStore = HistoryStore();
 
   final _host = TextEditingController();
@@ -449,20 +461,55 @@ class _UpdaterPageState extends State<UpdaterPage>
     }
     _lastAction = () => _run(dryRun: dryRun);
     await _guard(() async {
-      final summary = await _updater.run(
-        config: config,
-        fullUpgrade: _fullUpgrade,
-        dryRun: dryRun,
-        onLog: _appendLog,
-      );
-      if (!mounted) return;
-      setState(() {
-        _versionBefore = summary.before;
-        _versionAfter = summary.after;
-        _statusMessage = summary.message;
-        _statusOk = true;
-      });
-      if (!dryRun) _addHistory(summary.message);
+      // Auto-detect how evcc is installed, then take the matching update path.
+      final detection =
+          await _updater.detectInstall(config: config, onLog: _appendLog);
+      switch (detection.kind) {
+        case InstallKind.unknown:
+          throw const EvccUpdateException(
+            UpdateErrorKind.packageMissing,
+            'evcc wurde nicht gefunden – weder als apt-Paket noch als '
+            'Docker-Container.',
+          );
+        case InstallKind.docker:
+          if (dryRun) {
+            if (!mounted) return;
+            setState(() {
+              _statusMessage =
+                  'Probelauf für Docker-Installationen nicht verfügbar – evcc '
+                  'läuft hier im Container "${detection.container!.name}".';
+              _statusOk = true;
+            });
+            return;
+          }
+          await _updater.updateDocker(
+            config: config,
+            detection: detection,
+            onLog: _appendLog,
+          );
+          if (!mounted) return;
+          setState(() {
+            _statusMessage =
+                'evcc-Container aktualisiert (docker compose pull + up).';
+            _statusOk = true;
+          });
+          _addHistory('evcc-Docker-Container aktualisiert.');
+        case InstallKind.apt:
+          final summary = await _updater.run(
+            config: config,
+            fullUpgrade: _fullUpgrade,
+            dryRun: dryRun,
+            onLog: _appendLog,
+          );
+          if (!mounted) return;
+          setState(() {
+            _versionBefore = summary.before;
+            _versionAfter = summary.after;
+            _statusMessage = summary.message;
+            _statusOk = true;
+          });
+          if (!dryRun) _addHistory(summary.message);
+      }
     });
   }
 
@@ -471,17 +518,28 @@ class _UpdaterPageState extends State<UpdaterPage>
     if (config == null) return;
     _lastAction = _testConnection;
     await _guard(() async {
-      final info = await _updater.testConnection(
-        config: config,
-        onLog: _appendLog,
-      );
+      final d = await _updater.detectInstall(config: config, onLog: _appendLog);
       if (!mounted) return;
       setState(() {
-        _versionBefore = info.version;
-        _versionAfter = null;
-        _statusMessage = 'Verbindung OK – evcc ${info.version}, '
-            'Dienst ${info.serviceActive ? 'aktiv' : 'inaktiv'}.';
-        _statusOk = true;
+        switch (d.kind) {
+          case InstallKind.apt:
+            _versionBefore = d.aptVersion;
+            _versionAfter = null;
+            _statusMessage = 'Verbindung OK – evcc ${d.aptVersion} (apt), '
+                'Dienst ${d.serviceActive ? 'aktiv' : 'inaktiv'}.';
+            _statusOk = true;
+          case InstallKind.docker:
+            _versionBefore = null;
+            _versionAfter = null;
+            _statusMessage =
+                'Verbindung OK – evcc läuft via Docker (Container '
+                '"${d.container!.name}", Image ${d.container!.image}).';
+            _statusOk = true;
+          case InstallKind.unknown:
+            _statusMessage = 'Verbindung steht, aber evcc wurde nicht gefunden '
+                '(weder apt-Paket noch Docker-Container).';
+            _statusOk = false;
+        }
       });
     });
   }
@@ -584,6 +642,74 @@ class _UpdaterPageState extends State<UpdaterPage>
     SharePlus.instance.share(ShareParams(text: _log.join('\n')));
   }
 
+  /// Read-only live status straight from evcc's Web-API (no SSH, no creds).
+  void _showApiStatus() {
+    final host = _host.text.trim();
+    if (host.isEmpty) {
+      _snack('Bitte zuerst Host/IP eintragen.');
+      return;
+    }
+    final port = _uiPort.text.trim().isEmpty ? '7070' : _uiPort.text.trim();
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => _ApiStatusSheet(
+        future: _apiClient.fetchState(
+            scheme: _uiScheme, host: host, port: port),
+      ),
+    );
+  }
+
+  /// Scans the local /24 for hosts with SSH open, then lets the user pick one.
+  Future<void> _findPi() async {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const _ScanProgressDialog(),
+    );
+    var hosts = const <String>[];
+    try {
+      hosts = await _piFinder();
+    } catch (_) {
+      // fail-soft: treated as "nothing found" below
+    }
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop(); // dismiss the progress
+    if (hosts.isEmpty) {
+      _snack('Keine SSH-Geräte im WLAN gefunden – IP bitte manuell eintragen.');
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              title: Text('Gefundene Geräte (SSH offen)',
+                  style: Theme.of(ctx).textTheme.titleMedium),
+              subtitle: const Text('Nur im selben WLAN. Tippen zum Übernehmen.'),
+            ),
+            for (final ip in hosts)
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.dns_outlined, size: 18),
+                title: Text(ip),
+                onTap: () {
+                  setState(() => _host.text = ip);
+                  _scheduleSave();
+                  Navigator.pop(ctx);
+                  _snack('Host auf $ip gesetzt.');
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Silent read-only status check on launch (opt-in). Pre-fills the version
   /// badge + status without entering the busy state or clearing the log.
   Future<void> _autoStatus() async {
@@ -593,15 +719,24 @@ class _UpdaterPageState extends State<UpdaterPage>
     if (_authMode == AuthMode.password && _password.text.isEmpty) return;
     if (_authMode == AuthMode.key && _privateKey.text.trim().isEmpty) return;
     try {
-      final info =
-          await _updater.testConnection(config: _configFor(port), onLog: (_) {});
+      final d =
+          await _updater.detectInstall(config: _configFor(port), onLog: (_) {});
       if (!mounted) return;
       setState(() {
-        _versionBefore = info.version;
-        _versionAfter = null;
-        _statusMessage = 'evcc ${info.version}, '
-            'Dienst ${info.serviceActive ? 'aktiv' : 'inaktiv'}.';
-        _statusOk = true;
+        switch (d.kind) {
+          case InstallKind.apt:
+            _versionBefore = d.aptVersion;
+            _versionAfter = null;
+            _statusMessage = 'evcc ${d.aptVersion} (apt), '
+                'Dienst ${d.serviceActive ? 'aktiv' : 'inaktiv'}.';
+            _statusOk = true;
+          case InstallKind.docker:
+            _statusMessage =
+                'evcc via Docker (Container "${d.container!.name}").';
+            _statusOk = true;
+          case InstallKind.unknown:
+            break; // stay silent at launch when nothing is found
+        }
       });
     } catch (_) {
       // silent — never disrupt launch
@@ -849,12 +984,16 @@ class _UpdaterPageState extends State<UpdaterPage>
             enabled: !_busy,
             onSelected: (v) {
               switch (v) {
+                case 'api':
+                  _showApiStatus();
+                case 'status':
+                  _showStatus();
                 case 'restart':
                   _restartService();
                 case 'reboot':
                   _reboot();
-                case 'status':
-                  _showStatus();
+                case 'find':
+                  _findPi();
                 case 'share':
                   _shareLog();
                 case 'history':
@@ -865,10 +1004,15 @@ class _UpdaterPageState extends State<UpdaterPage>
             },
             itemBuilder: (_) => const [
               PopupMenuItem(
-                  value: 'restart', child: Text('evcc-Dienst neustarten')),
-              PopupMenuItem(value: 'reboot', child: Text('Pi neustarten')),
+                  value: 'api', child: Text('evcc-Status (Live)')),
               PopupMenuItem(
                   value: 'status', child: Text('Status / Logs anzeigen')),
+              PopupMenuItem(
+                  value: 'restart', child: Text('evcc-Dienst neustarten')),
+              PopupMenuItem(value: 'reboot', child: Text('Pi neustarten')),
+              PopupMenuDivider(),
+              PopupMenuItem(
+                  value: 'find', child: Text('Pi im Netzwerk suchen')),
               PopupMenuItem(value: 'share', child: Text('Log teilen')),
               PopupMenuItem(value: 'history', child: Text('Verlauf')),
               PopupMenuDivider(),
@@ -1507,6 +1651,164 @@ class _LogView extends StatelessWidget {
                 ),
               ),
             ),
+    );
+  }
+}
+
+/// Bottom sheet that shows evcc's live state, fetched read-only from its
+/// Web-API. Loading / error / data are all rendered defensively.
+class _ApiStatusSheet extends StatelessWidget {
+  const _ApiStatusSheet({required this.future});
+
+  final Future<EvccState> future;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: FutureBuilder<EvccState>(
+          future: future,
+          builder: (ctx, snap) {
+            if (snap.connectionState != ConnectionState.done) {
+              return const SizedBox(
+                height: 160,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            if (snap.hasError) {
+              final e = snap.error;
+              final msg = e is EvccApiException
+                  ? e.message
+                  : 'Live-Status nicht verfügbar.';
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('evcc-Live-Status', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Icon(Icons.error_outline, color: theme.colorScheme.error),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(msg)),
+                    ],
+                  ),
+                ],
+              );
+            }
+            return _stateView(ctx, snap.data!);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _stateView(BuildContext ctx, EvccState s) {
+    final theme = Theme.of(ctx);
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.bolt, color: kGreen),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(s.siteTitle ?? 'evcc-Status',
+                    style: theme.textTheme.titleMedium),
+              ),
+              if (s.version != null)
+                Text('v${s.version}',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _metric(ctx, Icons.solar_power_outlined, 'PV-Erzeugung',
+              formatPower(s.pvPower)),
+          _metric(ctx, Icons.swap_vert, 'Netz', formatPower(s.gridPower)),
+          _metric(ctx, Icons.home_outlined, 'Hausverbrauch',
+              formatPower(s.homePower)),
+          if (s.batteryConfigured)
+            _metric(
+              ctx,
+              Icons.battery_charging_full,
+              'Batterie',
+              '${s.batterySoc != null ? '${s.batterySoc!.round()} %' : '—'}'
+                  '  ·  ${formatPower(s.batteryPower)}',
+            ),
+          if (s.loadpoints.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text('Ladepunkte', style: theme.textTheme.labelLarge),
+            for (final lp in s.loadpoints) _loadpoint(ctx, lp),
+          ],
+          const SizedBox(height: 8),
+          Text('Live aus der evcc-Web-API (nur Anzeige).',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+        ],
+      ),
+    );
+  }
+
+  Widget _metric(BuildContext ctx, IconData icon, String label, String value) {
+    final theme = Theme.of(ctx);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 12),
+          Expanded(child: Text(label)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  Widget _loadpoint(BuildContext ctx, EvccLoadpoint lp) {
+    final theme = Theme.of(ctx);
+    final bits = <String>[];
+    if (lp.mode != null) bits.add('Modus ${lp.mode}');
+    bits.add(lp.charging
+        ? 'lädt ${formatPower(lp.chargePower)}'
+        : (lp.connected ? 'verbunden' : 'frei'));
+    if (lp.vehicleSoc != null) bits.add('Fahrzeug ${lp.vehicleSoc!.round()} %');
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      leading: Icon(
+        lp.charging ? Icons.ev_station : Icons.ev_station_outlined,
+        color: lp.charging ? kGreen : theme.colorScheme.onSurfaceVariant,
+      ),
+      title: Text(lp.title),
+      subtitle: Text(bits.join('  ·  ')),
+    );
+  }
+}
+
+/// Modal progress shown while the local network is being scanned for Pis.
+class _ScanProgressDialog extends StatelessWidget {
+  const _ScanProgressDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    return const AlertDialog(
+      content: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 16),
+          Flexible(child: Text('Suche SSH-Geräte im WLAN …')),
+        ],
+      ),
     );
   }
 }
