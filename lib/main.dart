@@ -737,6 +737,7 @@ class _UpdaterPageState extends State<UpdaterPage>
       builder: (_) => PopScope(
         canPop: false,
         child: _ScanProgressDialog(onCancel: () {
+          if (cancelled) return; // guard: a double-tap must not pop the page too
           cancelled = true;
           navigator.pop();
         }),
