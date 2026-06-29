@@ -2,6 +2,8 @@
     <!-- Required so the app can open an SSH socket to the Pi. Without this the
          release build (which merges only src/main) has no network access. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Optional app lock via biometrics / device credential (local_auth). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <application
         android:label="evcc Pi-Tool"
         android:name="${applicationName}"

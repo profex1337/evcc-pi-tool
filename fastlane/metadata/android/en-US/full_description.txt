@@ -1,0 +1,23 @@
+evcc Pi-Tool updates and installs evcc on your Raspberry Pi over SSH, with a single tap.
+
+Features:
+* Update evcc (apt) with a before/after version diff
+* Dry-run probe – safely check whether an update is available
+* Test connection – verify host/port/user/password in seconds
+* Install evcc (experimental) – adds the official apt repo and installs evcc
+* Maintenance: restart the evcc service, reboot the Pi, view/share status & logs
+* Optional full system upgrade
+* Quick link to the evcc web UI
+
+Security & privacy:
+* Credentials stay encrypted on device (Android Keystore)
+* SSH host-key verification (TOFU) – protects against MITM
+* Optional app lock via biometrics/PIN
+* SSH key auth as an alternative to passwords
+* No accounts, no ads, no tracking, no cloud
+
+Note: unofficial community tool, not affiliated with the evcc project. For day-to-day charging control there is the official evcc app.
+
+Disclaimer: the app runs sudo commands (apt, systemctl, reboot) on your device. Use at your own risk – no liability for damage to system, data or hardware (MIT license, "AS IS").
+
+Requirement: a Raspberry Pi (or Debian/Linux device) reachable over SSH.

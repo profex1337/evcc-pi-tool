@@ -33,6 +33,15 @@ const String versionQuery = r"dpkg-query -W -f='${Version}' evcc";
 /// Queries whether the evcc service is running (no sudo needed).
 const String serviceStatus = 'systemctl is-active evcc';
 
+/// Restarts the evcc service (needs sudo).
+const String serviceRestartCommand = 'sudo -S systemctl restart evcc';
+
+/// Reboots the Pi (needs sudo). The SSH connection drops as a result.
+const String rebootCommand = 'sudo -S reboot';
+
+/// evcc service status incl. the last log lines (no sudo needed).
+const String statusCommand = 'systemctl status evcc --no-pager';
+
 /// Builds the ordered update sequence.
 ///
 /// - [fullUpgrade] `false` upgrades only evcc; `true` upgrades the whole system.

@@ -20,6 +20,12 @@ class SshConfig {
   /// command (e.g. a held dpkg lock) cannot hang the app forever.
   final Duration commandTimeout;
 
+  /// Optional PEM private key for SSH auth. When non-empty, the connection
+  /// authenticates with this key instead of [password]; [password] is then
+  /// used only for `sudo -S`.
+  final String privateKey;
+  final String keyPassphrase;
+
   const SshConfig({
     required this.host,
     required this.port,
@@ -27,7 +33,11 @@ class SshConfig {
     required this.password,
     this.timeout = const Duration(seconds: 15),
     this.commandTimeout = const Duration(minutes: 10),
+    this.privateKey = '',
+    this.keyPassphrase = '',
   });
+
+  bool get usesKeyAuth => privateKey.trim().isNotEmpty;
 }
 
 /// Result of running a single remote command.

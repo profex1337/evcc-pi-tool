@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartssh2/dartssh2.dart';
+import 'package:evcc_updater/src/commands.dart';
 import 'package:evcc_updater/src/evcc_updater.dart';
 import 'package:evcc_updater/src/parsing.dart';
 import 'package:evcc_updater/src/ssh_runner.dart';
@@ -31,12 +32,16 @@ class FakeSshRunner implements SshRunner {
   final Map<String, List<CommandResult>> responses;
   final Object? connectError;
 
+  /// Per-command error to throw from [run] (e.g. simulate a dropped connection).
+  final Map<String, Object> runErrors;
+
   final List<String> commandsRun = [];
   final Map<String, String?> stdinByCommand = {};
   bool closed = false;
   bool connected = false;
 
-  FakeSshRunner(this.responses, {this.connectError});
+  FakeSshRunner(this.responses,
+      {this.connectError, this.runErrors = const {}});
 
   @override
   Future<void> connect() async {
@@ -49,6 +54,8 @@ class FakeSshRunner implements SshRunner {
       {String? stdin, void Function(String chunk)? onOutput}) async {
     commandsRun.add(command);
     stdinByCommand[command] = stdin;
+
+    if (runErrors.containsKey(command)) throw runErrors[command]!;
 
     final queue = responses[command];
     final CommandResult result;
@@ -391,6 +398,18 @@ void main() {
       );
     });
 
+    test('maps a private-key decode failure to an auth error', () async {
+      final runner =
+          FakeSshRunner({}, connectError: SSHKeyDecodeError('malformed key'));
+
+      await expectLater(
+        _updaterWith(runner).run(
+            config: _config, fullUpgrade: false, dryRun: false, onLog: (_) {}),
+        throwsA(isA<EvccUpdateException>()
+            .having((e) => e.kind, 'kind', UpdateErrorKind.auth)),
+      );
+    });
+
     test('maps a changed host key to a hostKeyChanged error', () async {
       final runner = FakeSshRunner({},
           connectError: const HostKeyChangedException(
@@ -406,6 +425,86 @@ void main() {
         throwsA(isA<EvccUpdateException>()
             .having((e) => e.kind, 'kind', UpdateErrorKind.hostKeyChanged)),
       );
+    });
+  });
+
+  group('EvccUpdater admin actions', () {
+    test('restartService restarts (sudo) and confirms the service is active',
+        () async {
+      final runner = FakeSshRunner({
+        serviceRestartCommand: [_r('')],
+        _svc: [_r('active\n')],
+      });
+
+      await _updaterWith(runner)
+          .restartService(config: _config, onLog: (_) {});
+
+      expect(runner.commandsRun, contains(serviceRestartCommand));
+      expect(runner.stdinByCommand[serviceRestartCommand], 'sekret\n');
+    });
+
+    test('restartService reports a rejected sudo password', () async {
+      final runner = FakeSshRunner({
+        serviceRestartCommand: [
+          _r('', stderr: 'sudo: 1 incorrect password attempt', exitCode: 1)
+        ],
+      });
+
+      await expectLater(
+        _updaterWith(runner).restartService(config: _config, onLog: (_) {}),
+        throwsA(isA<EvccUpdateException>()
+            .having((e) => e.kind, 'kind', UpdateErrorKind.sudo)),
+      );
+    });
+
+    test('restartService fails if the service is not active afterwards',
+        () async {
+      final runner = FakeSshRunner({
+        serviceRestartCommand: [_r('')],
+        _svc: [_r('inactive\n')],
+      });
+
+      await expectLater(
+        _updaterWith(runner).restartService(config: _config, onLog: (_) {}),
+        throwsA(isA<EvccUpdateException>()
+            .having((e) => e.kind, 'kind', UpdateErrorKind.serviceInactive)),
+      );
+    });
+
+    test('reboot tolerates the connection dropping (success)', () async {
+      final runner = FakeSshRunner({},
+          runErrors: {rebootCommand: const SocketException('connection closed')});
+
+      // Must NOT throw — a dropped connection is the expected outcome.
+      await _updaterWith(runner).reboot(config: _config, onLog: (_) {});
+    });
+
+    test('reboot reports a rejected sudo password (no disconnect)', () async {
+      final runner = FakeSshRunner({
+        rebootCommand: [
+          _r('', stderr: 'sudo: 1 incorrect password attempt', exitCode: 1)
+        ],
+      });
+
+      await expectLater(
+        _updaterWith(runner).reboot(config: _config, onLog: (_) {}),
+        throwsA(isA<EvccUpdateException>()
+            .having((e) => e.kind, 'kind', UpdateErrorKind.sudo)),
+      );
+    });
+
+    test('fetchStatus returns the systemctl status output', () async {
+      final runner = FakeSshRunner({
+        statusCommand: [
+          _r('● evcc.service - evcc\n   Active: active (running) since ...')
+        ],
+      });
+
+      final status =
+          await _updaterWith(runner).fetchStatus(config: _config, onLog: (_) {});
+
+      expect(status, contains('active (running)'));
+      expect(runner.commandsRun, contains(statusCommand));
     });
   });
 }

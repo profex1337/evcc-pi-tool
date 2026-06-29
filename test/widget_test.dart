@@ -1,4 +1,5 @@
 import 'package:evcc_updater/main.dart';
+import 'package:evcc_updater/src/authenticator.dart';
 import 'package:evcc_updater/src/settings_store.dart';
 import 'package:evcc_updater/src/update_check.dart';
 import 'package:flutter/material.dart';
@@ -6,13 +7,25 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// In-memory store so the widget test never touches platform channels.
 class _FakeStore extends SettingsStore {
+  _FakeStore([this._initial = Settings.empty]);
+
+  final Settings _initial;
   Settings saved = Settings.empty;
 
   @override
-  Future<Settings> load() async => Settings.empty;
+  Future<Settings> load() async => _initial;
 
   @override
   Future<void> save(Settings s) async => saved = s;
+}
+
+/// Authenticator that is available but always denies — keeps the app locked.
+class _DenyAuth implements Authenticator {
+  @override
+  Future<bool> canAuthenticate() async => true;
+
+  @override
+  Future<bool> authenticate(String reason) async => false;
 }
 
 /// Update checker that never hits the network in tests.
@@ -75,5 +88,31 @@ void main() {
     await tester.pump(const Duration(seconds: 1)); // past the 800ms debounce
 
     expect(store.saved.host, '192.168.1.50');
+  });
+
+  testWidgets('shows the lock screen when app-lock is on and not unlocked',
+      (tester) async {
+    useTallScreen(tester);
+    final store = _FakeStore(const Settings(
+      host: '',
+      port: '22',
+      username: 'pi',
+      password: '',
+      fullUpgrade: false,
+      lockEnabled: true,
+    ));
+    await tester.pumpWidget(MaterialApp(
+      home: UpdaterPage(
+        store: store,
+        updateChecker: _noUpdateChecker,
+        authenticator: _DenyAuth(),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Gesperrt'), findsOneWidget);
+    expect(find.text('Entsperren'), findsOneWidget);
+    // Main UI must be hidden behind the lock.
+    expect(find.text('evcc aktualisieren'), findsNothing);
   });
 }

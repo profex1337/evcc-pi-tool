@@ -28,6 +28,26 @@ class Dartssh2Runner implements SshRunner {
     // SSHSocket.connect's timeout only bounds the TCP handshake, so bound the
     // auth handshake separately — otherwise a host that accepts TCP but stalls
     // during key-exchange/auth would hang forever.
+    // Parse the private key before opening the socket so a bad key/passphrase
+    // fails fast (and surfaces as a clear auth error) without leaking a socket.
+    // fromPem throws SSHKeyDecryptError for passphrase issues but plain
+    // FormatException/UnsupportedError/ArgumentError for malformed/unsupported
+    // keys — normalise them all to SSHKeyDecodeError so the UI shows one clear
+    // "key invalid" message instead of a raw error.
+    List<SSHKeyPair>? identities;
+    if (config.usesKeyAuth) {
+      try {
+        identities = SSHKeyPair.fromPem(
+          config.privateKey,
+          config.keyPassphrase.isEmpty ? null : config.keyPassphrase,
+        );
+      } on SSHKeyDecodeError {
+        rethrow;
+      } catch (e) {
+        throw SSHKeyDecodeError('Privater SSH-Key konnte nicht gelesen werden', e);
+      }
+    }
+
     final socket = await SSHSocket.connect(
       config.host,
       config.port,
@@ -36,7 +56,9 @@ class Dartssh2Runner implements SshRunner {
     final client = SSHClient(
       socket,
       username: config.username,
-      onPasswordRequest: () => config.password,
+      // Key auth when a private key is provided; otherwise password auth.
+      identities: identities,
+      onPasswordRequest: config.usesKeyAuth ? null : () => config.password,
       // TOFU host-key check. dartssh2 hands us the OpenSSH `SHA256:<base64>`
       // fingerprint (UTF-8 bytes). Returning false aborts the handshake before
       // any password is sent.

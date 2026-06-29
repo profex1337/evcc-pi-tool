@@ -132,6 +132,14 @@ Beide Wege funktionieren parallel, ohne sich zu stören:
   > Play-Version hat daher eine andere Signatur als die Sideload-APK; beide Kanäle
   > laufen unabhängig nebeneinander.
 
+## Haftungsausschluss
+
+Inoffizielles Community-Tool, **nicht** mit dem evcc-Projekt verbunden. Die App
+führt mit deinen Zugangsdaten `sudo`-Befehle (`apt`, `systemctl`, `reboot`) auf
+deinem Gerät aus. **Nutzung auf eigene Gefahr — keine Haftung für Schäden an
+System, Daten oder Hardware.** Lizenz: [MIT](LICENSE) („AS IS", ohne
+Gewährleistung).
+
 ## Entwicklung
 
 ```bash

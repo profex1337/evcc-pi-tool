@@ -249,6 +249,102 @@ class EvccUpdater {
     );
   }
 
+  /// Restarts the evcc service and verifies it comes back active.
+  Future<void> restartService({
+    required SshConfig config,
+    required void Function(String line) onLog,
+  }) {
+    return _withConnection<void>(
+      config: config,
+      onLog: onLog,
+      body: (runner, log) async {
+        log('Starte evcc-Dienst neu …');
+        log('\$ $serviceRestartCommand');
+        final result = await runner.run(
+          serviceRestartCommand,
+          stdin: '${config.password}\n',
+          onOutput: (chunk) {
+            final t = chunk.trimRight();
+            if (t.isNotEmpty) log(t);
+          },
+        );
+        if (isSudoPasswordFailure('${result.stdout}\n${result.stderr}')) {
+          throw const EvccUpdateException(
+            UpdateErrorKind.sudo,
+            'sudo hat das Passwort abgelehnt – stimmt das Pi-Passwort?',
+          );
+        }
+        final svc = await runner.run(serviceStatus);
+        if (!isServiceActive(svc.stdout)) {
+          throw const EvccUpdateException(
+            UpdateErrorKind.serviceInactive,
+            'evcc-Dienst ist nach dem Neustart nicht aktiv.',
+          );
+        }
+        log('evcc-Dienst läuft wieder.');
+      },
+    );
+  }
+
+  /// Reboots the Pi. The SSH connection drops as a result — that's treated as
+  /// success. A rejected sudo password (no disconnect) is reported.
+  Future<void> reboot({
+    required SshConfig config,
+    required void Function(String line) onLog,
+  }) {
+    return _withConnection<void>(
+      config: config,
+      onLog: onLog,
+      body: (runner, log) async {
+        log('Starte den Pi neu …');
+        log('\$ $rebootCommand');
+        var combined = '';
+        try {
+          final result = await runner.run(
+            rebootCommand,
+            stdin: '${config.password}\n',
+            onOutput: (chunk) {
+              final t = chunk.trimRight();
+              if (t.isNotEmpty) log(t);
+            },
+          );
+          combined = '${result.stdout}\n${result.stderr}';
+        } catch (_) {
+          // The reboot drops the SSH connection — expected, treat as success.
+        }
+        if (isSudoPasswordFailure(combined)) {
+          throw const EvccUpdateException(
+            UpdateErrorKind.sudo,
+            'sudo hat das Passwort abgelehnt – stimmt das Pi-Passwort?',
+          );
+        }
+        log('Neustart ausgelöst – der Pi ist gleich kurz offline.');
+      },
+    );
+  }
+
+  /// Fetches `systemctl status evcc` (incl. recent log lines) for diagnostics.
+  Future<String> fetchStatus({
+    required SshConfig config,
+    required void Function(String line) onLog,
+  }) {
+    return _withConnection<String>(
+      config: config,
+      onLog: onLog,
+      body: (runner, log) async {
+        log('\$ $statusCommand');
+        final result = await runner.run(
+          statusCommand,
+          onOutput: (chunk) {
+            final t = chunk.trimRight();
+            if (t.isNotEmpty) log(t);
+          },
+        );
+        return result.stdout.isNotEmpty ? result.stdout : result.stderr;
+      },
+    );
+  }
+
   /// Opens the connection, runs [body], and maps any SSH/IO failure to an
   /// [EvccUpdateException]. The runner is always closed afterwards.
   Future<T> _withConnection<T>({
@@ -276,7 +372,12 @@ class EvccUpdater {
     } on SSHAuthError {
       throw const EvccUpdateException(
         UpdateErrorKind.auth,
-        'Anmeldung fehlgeschlagen – Benutzer/Passwort prüfen.',
+        'Anmeldung fehlgeschlagen – Benutzer/Passwort bzw. SSH-Key prüfen.',
+      );
+    } on SSHKeyDecodeError {
+      throw const EvccUpdateException(
+        UpdateErrorKind.auth,
+        'Privater SSH-Key ungültig oder falsche Passphrase.',
       );
     } on SocketException {
       throw const EvccUpdateException(

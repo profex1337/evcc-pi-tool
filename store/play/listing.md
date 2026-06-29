@@ -40,6 +40,9 @@ Sicherheit & Datenschutz:
 Hinweis: Dies ist ein inoffizielles Community-Tool und steht in keiner Verbindung zum evcc-Projekt.
 Für die tägliche Lade-Steuerung gibt es die offizielle evcc-App.
 
+Haftungsausschluss: Die App führt sudo-Befehle (apt, systemctl, reboot) auf deinem Gerät aus.
+Nutzung auf eigene Gefahr – keine Haftung für Schäden an System, Daten oder Hardware.
+
 Voraussetzungen: ein per SSH erreichbarer Raspberry Pi (oder Linux/Debian-Gerät) mit deinen Zugangsdaten.
 ```
 
