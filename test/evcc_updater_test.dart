@@ -571,6 +571,31 @@ void main() {
 
       expect(d.kind, InstallKind.unknown);
     });
+
+    test('allowSudoForDocker:false never escalates to sudo (no password sent)',
+        () async {
+      final runner = FakeSshRunner({
+        _vQuery: [_r('\n')],
+        dockerListCommand: [
+          _r('',
+              stderr: 'permission denied while trying to connect to the '
+                  'Docker daemon socket',
+              exitCode: 1)
+        ],
+        dockerListSudoCommand: [_r('evcc|evcc/evcc:latest\n')],
+      });
+
+      final d = await _updaterWith(runner).detectInstall(
+        config: _config,
+        onLog: (_) {},
+        allowSudoForDocker: false,
+      );
+
+      // No sudo retry → can't see the container → unknown, and crucially the
+      // sudo command (which carries the password) was never run.
+      expect(d.kind, InstallKind.unknown);
+      expect(runner.commandsRun, isNot(contains(dockerListSudoCommand)));
+    });
   });
 
   group('EvccUpdater.updateDocker', () {

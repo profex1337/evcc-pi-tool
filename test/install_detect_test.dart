@@ -41,6 +41,13 @@ void main() {
       expect(parseEvccDocker('db|postgres:16\nweb|nginx'), isNull);
       expect(parseEvccDocker(''), isNull);
     });
+
+    test('prefers the image match over a sibling matching only by name', () {
+      // evcc-db (postgres) sorts first but is NOT the evcc install.
+      final d = parseEvccDocker('evcc-db|postgres:16\nevcc|evcc/evcc:latest');
+      expect(d!.name, 'evcc');
+      expect(d.image, 'evcc/evcc:latest');
+    });
   });
 
   group('isDockerPermissionError', () {
@@ -79,6 +86,13 @@ void main() {
     test('requires both working dir and service', () {
       expect(parseComposeInfo('/home/pi/evcc|<no value>|<no value>'), isNull);
     });
+    test('rejects a tampered service name or a non-absolute working dir', () {
+      // A service containing shell metacharacters is refused outright.
+      expect(parseComposeInfo('/home/pi/evcc|x|evcc;reboot'), isNull);
+      expect(parseComposeInfo("/home/pi/evcc|x|ev'cc"), isNull);
+      // Working dir must be an absolute path.
+      expect(parseComposeInfo('home/pi/evcc|x|evcc'), isNull);
+    });
   });
 
   group('dockerComposeUpdateScript', () {
@@ -92,6 +106,25 @@ void main() {
       expect(script, contains("docker compose pull 'evcc'"));
       expect(script, contains("docker compose up -d 'evcc'"));
       expect(script, contains('set -e'));
+    });
+
+    test('escapes single quotes so a label cannot break out of the shell', () {
+      final script = dockerComposeUpdateScript(const DockerComposeInfo(
+        workingDir: "/x';reboot;'",
+        configFile: '',
+        service: 'evcc',
+      ));
+      // The dangerous quote is escaped via the '\'' idiom, NOT left to close
+      // the cd quoting and start a new `reboot` command.
+      expect(script, contains(r"cd '/x'\''"));
+      expect(script, isNot(contains("cd '/x';reboot")));
+    });
+  });
+
+  group('shSingleQuote', () {
+    test('wraps plain values and escapes embedded quotes', () {
+      expect(shSingleQuote('evcc'), "'evcc'");
+      expect(shSingleQuote("a'b"), r"'a'\''b'");
     });
   });
 }

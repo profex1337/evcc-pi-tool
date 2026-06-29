@@ -281,6 +281,7 @@ class EvccUpdater {
   Future<InstallDetection> detectInstall({
     required SshConfig config,
     required void Function(String line) onLog,
+    bool allowSudoForDocker = true,
   }) {
     return _withConnection<InstallDetection>(
       config: config,
@@ -303,7 +304,10 @@ class EvccUpdater {
         // No apt package — look for a running evcc Docker container.
         var listing = await runner.run(dockerListCommand);
         var needsSudo = false;
-        if (isDockerPermissionError('${listing.stdout}\n${listing.stderr}')) {
+        // Retry via sudo only when explicitly allowed — the silent launch check
+        // must never send the sudo password without a user action.
+        if (allowSudoForDocker &&
+            isDockerPermissionError('${listing.stdout}\n${listing.stderr}')) {
           needsSudo = true;
           listing = await runner.run(
             dockerListSudoCommand,

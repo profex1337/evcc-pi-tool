@@ -99,5 +99,9 @@ void main() {
       expect(formatPower(-2300), '-2,3 kW');
       expect(formatPower(-250), '-250 W');
     });
+    test('a value that rounds up to 1000 W is shown as kW, not "1000 W"', () {
+      expect(formatPower(999.6), '1,0 kW');
+      expect(formatPower(-999.6), '-1,0 kW');
+    });
   });
 }

@@ -109,7 +109,8 @@ num? _num(Object? v) {
 /// 1 kW, otherwise kW with one decimal and a decimal comma. Keeps the sign.
 String formatPower(num? watts) {
   if (watts == null) return '—';
-  if (watts.abs() < 1000) return '${watts.round()} W';
+  final w = watts.round();
+  if (w.abs() < 1000) return '$w W';
   final kw = (watts / 1000).toStringAsFixed(1).replaceAll('.', ',');
   return '$kw kW';
 }
@@ -149,6 +150,9 @@ Future<Map<String, dynamic>> _defaultGet(Uri url) async {
     ..connectionTimeout = const Duration(seconds: 6);
   try {
     final request = await client.getUrl(url);
+    // Don't chase redirects: a server impersonating evcc shouldn't be able to
+    // bounce this read-only probe elsewhere.
+    request.followRedirects = false;
     request.headers.set(HttpHeaders.acceptHeader, 'application/json');
     final response =
         await request.close().timeout(const Duration(seconds: 6));

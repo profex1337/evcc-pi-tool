@@ -71,20 +71,28 @@ InstallKind classifyInstall({
   return InstallKind.unknown;
 }
 
-/// Finds the evcc container in a `name|image`-per-line listing, matching on
-/// either the image or the container name. Returns null when none is present.
+/// Wraps [s] in single quotes, safely escaping any embedded single quote so the
+/// value cannot break out of the quoting in a shell command (`'\''` idiom).
+String shSingleQuote(String s) => "'${s.replaceAll("'", r"'\''")}'";
+
+/// Finds the evcc container in a `name|image`-per-line listing. Prefers an
+/// **image** match (the reliable signal) and only falls back to a name match,
+/// so a sibling container like `evcc-db` (image `postgres`) is never mistaken
+/// for the evcc install. Returns null when none is present.
 EvccDocker? parseEvccDocker(String dockerPs) {
+  final entries = <EvccDocker>[];
   for (final line in dockerPs.split('\n')) {
     final t = line.trim();
     if (t.isEmpty) continue;
     final parts = t.split('|');
     if (parts.length < 2) continue;
-    final name = parts[0].trim();
-    final image = parts[1].trim();
-    if (image.toLowerCase().contains('evcc') ||
-        name.toLowerCase().contains('evcc')) {
-      return EvccDocker(name: name, image: image);
-    }
+    entries.add(EvccDocker(name: parts[0].trim(), image: parts[1].trim()));
+  }
+  for (final e in entries) {
+    if (e.image.toLowerCase().contains('evcc')) return e;
+  }
+  for (final e in entries) {
+    if (e.name.toLowerCase().contains('evcc')) return e;
   }
   return null;
 }
@@ -101,7 +109,7 @@ bool isDockerPermissionError(String output) {
 /// `docker inspect` that prints `workingDir|configFile|service` from the
 /// compose labels (or `<no value>` for each missing label).
 String dockerInspectCommand(String container) =>
-    "docker inspect '$container' --format "
+    'docker inspect ${shSingleQuote(container)} --format '
     '\'{{ index .Config.Labels "com.docker.compose.project.working_dir"}}|'
     '{{ index .Config.Labels "com.docker.compose.project.config_files"}}|'
     '{{ index .Config.Labels "com.docker.compose.service"}}\'';
@@ -129,6 +137,15 @@ DockerComposeInfo? parseComposeInfo(String inspectOutput) {
   final workingDir = at(0);
   final service = at(2);
   if (workingDir.isEmpty || service.isEmpty) return null;
+  // Defense-in-depth: only accept sane values (the working dir must be an
+  // absolute path; the service name must match compose's own charset). Anything
+  // odd falls through to the "update manually" path instead of into a shell
+  // script. The shell escaping in [dockerComposeUpdateScript] is the primary
+  // protection; this rejects obviously-tampered labels early.
+  final validService = RegExp(r'^[A-Za-z0-9._-]+$');
+  if (!workingDir.startsWith('/') || !validService.hasMatch(service)) {
+    return null;
+  }
   return DockerComposeInfo(
     workingDir: workingDir,
     configFile: at(1),
@@ -138,12 +155,17 @@ DockerComposeInfo? parseComposeInfo(String inspectOutput) {
 
 /// The root/bash script that updates a compose-managed evcc: pull the image,
 /// then recreate only the evcc service in its project directory.
+///
+/// Every interpolated value is shell-escaped so a tampered compose label can't
+/// break out of the quoting and inject commands.
 String dockerComposeUpdateScript(DockerComposeInfo info) {
+  final dir = shSingleQuote(info.workingDir);
+  final svc = shSingleQuote(info.service);
   return '''
 set -e
-cd '${info.workingDir}'
-docker compose pull '${info.service}'
-docker compose up -d '${info.service}'
+cd $dir
+docker compose pull $svc
+docker compose up -d $svc
 ''';
 }
 

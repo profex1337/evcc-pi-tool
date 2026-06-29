@@ -489,6 +489,8 @@ class _UpdaterPageState extends State<UpdaterPage>
           );
           if (!mounted) return;
           setState(() {
+            _versionBefore = null; // version badge is apt-only
+            _versionAfter = null;
             _statusMessage =
                 'evcc-Container aktualisiert (docker compose pull + up).';
             _statusOk = true;
@@ -536,6 +538,8 @@ class _UpdaterPageState extends State<UpdaterPage>
                 '"${d.container!.name}", Image ${d.container!.image}).';
             _statusOk = true;
           case InstallKind.unknown:
+            _versionBefore = null;
+            _versionAfter = null;
             _statusMessage = 'Verbindung steht, aber evcc wurde nicht gefunden '
                 '(weder apt-Paket noch Docker-Container).';
             _statusOk = false;
@@ -663,10 +667,17 @@ class _UpdaterPageState extends State<UpdaterPage>
 
   /// Scans the local /24 for hosts with SSH open, then lets the user pick one.
   Future<void> _findPi() async {
+    // Capture the navigator up front and block back-dismissal, so the dialog we
+    // pop after the scan is guaranteed to be this progress dialog (never some
+    // other topmost route).
+    final navigator = Navigator.of(context, rootNavigator: true);
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const _ScanProgressDialog(),
+      builder: (_) => const PopScope(
+        canPop: false,
+        child: _ScanProgressDialog(),
+      ),
     );
     var hosts = const <String>[];
     try {
@@ -674,8 +685,8 @@ class _UpdaterPageState extends State<UpdaterPage>
     } catch (_) {
       // fail-soft: treated as "nothing found" below
     }
+    navigator.pop(); // dismiss the progress dialog (topmost by construction)
     if (!mounted) return;
-    Navigator.of(context, rootNavigator: true).pop(); // dismiss the progress
     if (hosts.isEmpty) {
       _snack('Keine SSH-Geräte im WLAN gefunden – IP bitte manuell eintragen.');
       return;
@@ -719,8 +730,13 @@ class _UpdaterPageState extends State<UpdaterPage>
     if (_authMode == AuthMode.password && _password.text.isEmpty) return;
     if (_authMode == AuthMode.key && _privateKey.text.trim().isEmpty) return;
     try {
-      final d =
-          await _updater.detectInstall(config: _configFor(port), onLog: (_) {});
+      // Silent launch check stays password-free: never escalate docker to sudo
+      // here (that only happens on an explicit "Verbindung testen"/update).
+      final d = await _updater.detectInstall(
+        config: _configFor(port),
+        onLog: (_) {},
+        allowSudoForDocker: false,
+      );
       if (!mounted) return;
       setState(() {
         switch (d.kind) {
@@ -731,6 +747,8 @@ class _UpdaterPageState extends State<UpdaterPage>
                 'Dienst ${d.serviceActive ? 'aktiv' : 'inaktiv'}.';
             _statusOk = true;
           case InstallKind.docker:
+            _versionBefore = null;
+            _versionAfter = null;
             _statusMessage =
                 'evcc via Docker (Container "${d.container!.name}").';
             _statusOk = true;
