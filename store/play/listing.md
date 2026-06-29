@@ -27,7 +27,7 @@ Funktionen:
 • evcc aktualisieren (apt) – mit Versions-Diff vorher/nachher
 • Probelauf (Dry-Run) – zeigt gefahrlos, ob ein Update verfügbar ist
 • Verbindung testen – prüft Host/Port/Benutzer/Passwort in Sekunden
-• evcc neu installieren (experimentell) – richtet das offizielle apt-Repo ein und installiert evcc
+• evcc neu installieren – richtet das offizielle apt-Repo ein und installiert evcc
 • Optionales komplettes System-Upgrade
 • Live-Log der SSH-Ausgabe, Versions-Badge
 • Schnellzugriff auf die evcc-Weboberfläche (http://<Pi>:7070)

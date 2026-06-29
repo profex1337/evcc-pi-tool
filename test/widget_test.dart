@@ -54,7 +54,7 @@ void main() {
     expect(find.text('evcc aktualisieren'), findsOneWidget);
     expect(find.text('Verbindung testen'), findsOneWidget);
     expect(find.text('Probelauf (ändert nichts)'), findsOneWidget);
-    expect(find.text('evcc installieren (experimentell)'), findsOneWidget);
+    expect(find.text('evcc installieren'), findsOneWidget);
     expect(find.text('Komplettes System-Upgrade'), findsOneWidget);
     expect(find.text('Live-Log'), findsOneWidget);
     // Host/IP, Benutzer, Port, Passwort.

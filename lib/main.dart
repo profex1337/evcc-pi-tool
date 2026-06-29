@@ -355,9 +355,7 @@ class _UpdaterPageState extends State<UpdaterPage>
     if (!await _confirm(
       'evcc installieren?',
       'Installiert evcc auf ${_host.text.trim()}: fügt das offizielle '
-          'evcc-Repo hinzu, installiert das Paket und startet den Dienst.\n\n'
-          'Experimentell — nach offizieller evcc-Doku gebaut, aber noch nicht '
-          'gegen einen frischen Pi getestet.',
+          'evcc-Repo hinzu, installiert das Paket und startet den Dienst.',
     )) {
       return;
     }
@@ -712,7 +710,7 @@ class _UpdaterPageState extends State<UpdaterPage>
             OutlinedButton.icon(
               onPressed: _busy ? null : _install,
               icon: const Icon(Icons.install_mobile),
-              label: const Text('evcc installieren (experimentell)'),
+              label: const Text('evcc installieren'),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(48),
               ),

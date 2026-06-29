@@ -4,7 +4,7 @@ Features:
 * Update evcc (apt) with a before/after version diff
 * Dry-run probe – safely check whether an update is available
 * Test connection – verify host/port/user/password in seconds
-* Install evcc (experimental) – adds the official apt repo and installs evcc
+* Install evcc – adds the official apt repo and installs evcc
 * Maintenance: restart the evcc service, reboot the Pi, view/share status & logs
 * Optional full system upgrade
 * Quick link to the evcc web UI
