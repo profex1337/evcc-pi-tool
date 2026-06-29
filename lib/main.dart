@@ -9,6 +9,7 @@ import 'src/authenticator.dart';
 import 'src/evcc_updater.dart';
 import 'src/history.dart';
 import 'src/parsing.dart';
+import 'src/profiles.dart';
 import 'src/settings_store.dart';
 import 'src/ssh_runner.dart';
 import 'src/update_check.dart';
@@ -85,7 +86,7 @@ class UpdaterPage extends StatefulWidget {
     this.authenticator,
   });
 
-  final SettingsStore? store;
+  final AppConfigStore? store;
   final EvccUpdater? updater;
   final UpdateChecker? updateChecker;
   final Authenticator? authenticator;
@@ -96,7 +97,7 @@ class UpdaterPage extends StatefulWidget {
 
 class _UpdaterPageState extends State<UpdaterPage>
     with WidgetsBindingObserver {
-  late final SettingsStore _store = widget.store ?? SettingsStore();
+  late final AppConfigStore _store = widget.store ?? AppConfigStore();
   late final EvccUpdater _updater = widget.updater ?? EvccUpdater.real();
   late final UpdateChecker _updateChecker =
       widget.updateChecker ?? UpdateChecker();
@@ -124,6 +125,8 @@ class _UpdaterPageState extends State<UpdaterPage>
   String _themeMode = 'system';
   String _channel = 'stable';
   bool _autoCheck = false;
+  List<Profile> _profiles = const [Profile(name: 'Standard')];
+  int _activeIndex = 0;
 
   final List<String> _log = [];
   String? _versionBefore;
@@ -183,23 +186,18 @@ class _UpdaterPageState extends State<UpdaterPage>
   }
 
   Future<void> _loadSettings() async {
-    final s = await _store.load();
+    final cfg = await _store.load();
     if (!mounted) return;
     setState(() {
-      _host.text = s.host;
-      _port.text = s.port;
-      _user.text = s.username;
-      _password.text = s.password;
-      _fullUpgrade = s.fullUpgrade;
-      _authMode = s.authMode;
-      _privateKey.text = s.privateKey;
-      _keyPassphrase.text = s.keyPassphrase;
-      _uiScheme = s.uiScheme;
-      _uiPort.text = s.uiPort;
-      _lockEnabled = s.lockEnabled;
-      _themeMode = s.themeMode;
-      _channel = s.channel;
-      _autoCheck = s.autoCheck;
+      _profiles = cfg.profiles;
+      _activeIndex = cfg.safeIndex;
+      _uiScheme = cfg.uiScheme;
+      _uiPort.text = cfg.uiPort;
+      _lockEnabled = cfg.lockEnabled;
+      _themeMode = cfg.themeMode;
+      _channel = cfg.channel;
+      _autoCheck = cfg.autoCheck;
+      _applyProfile(cfg.active);
       if (_lockEnabled) _locked = true;
     });
     themeModeNotifier.value = parseThemeMode(_themeMode);
@@ -214,30 +212,130 @@ class _UpdaterPageState extends State<UpdaterPage>
     }
   }
 
+  /// Loads a profile's connection fields into the controllers/state.
+  void _applyProfile(Profile p) {
+    _host.text = p.host;
+    _port.text = p.port;
+    _user.text = p.username;
+    _password.text = p.password;
+    _privateKey.text = p.privateKey;
+    _keyPassphrase.text = p.keyPassphrase;
+    _authMode = p.authMode;
+    _fullUpgrade = p.fullUpgrade;
+  }
+
   /// Debounced auto-save: persists ~0.8s after the last edit.
   void _scheduleSave() {
     _saveDebounce?.cancel();
     _saveDebounce = Timer(const Duration(milliseconds: 800), _persistSettings);
   }
 
-  Future<void> _persistSettings() => _store.save(_currentSettings());
+  Future<void> _persistSettings() => _store.save(_currentConfig());
 
-  Settings _currentSettings() => Settings(
+  /// The active profile rebuilt from the live controller values.
+  Profile _currentProfile() => Profile(
+        name: _activeIndex < _profiles.length
+            ? _profiles[_activeIndex].name
+            : 'Standard',
         host: _host.text.trim(),
         port: _port.text.trim().isEmpty ? '22' : _port.text.trim(),
         username: _user.text.trim().isEmpty ? 'pi' : _user.text.trim(),
         password: _password.text,
-        fullUpgrade: _fullUpgrade,
         authMode: _authMode,
         privateKey: _privateKey.text,
         keyPassphrase: _keyPassphrase.text,
-        uiScheme: _uiScheme,
-        uiPort: _uiPort.text.trim().isEmpty ? '7070' : _uiPort.text.trim(),
-        lockEnabled: _lockEnabled,
-        themeMode: _themeMode,
-        channel: _channel,
-        autoCheck: _autoCheck,
+        fullUpgrade: _fullUpgrade,
       );
+
+  AppConfig _currentConfig() {
+    final profiles = [..._profiles];
+    if (_activeIndex < profiles.length) {
+      profiles[_activeIndex] = _currentProfile();
+    }
+    return AppConfig(
+      profiles: profiles,
+      activeIndex: _activeIndex,
+      uiScheme: _uiScheme,
+      uiPort: _uiPort.text.trim().isEmpty ? '7070' : _uiPort.text.trim(),
+      lockEnabled: _lockEnabled,
+      themeMode: _themeMode,
+      channel: _channel,
+      autoCheck: _autoCheck,
+    );
+  }
+
+  // ---- profile management --------------------------------------------------
+
+  void _switchProfile(int i) {
+    if (i == _activeIndex || i < 0 || i >= _profiles.length) return;
+    _profiles[_activeIndex] = _currentProfile(); // capture outgoing edits
+    setState(() {
+      _activeIndex = i;
+      _applyProfile(_profiles[i]);
+    });
+    _persistSettings();
+  }
+
+  Future<void> _addProfile() async {
+    final name = await _promptName('Neues Profil', '');
+    if (name == null) return;
+    _profiles[_activeIndex] = _currentProfile();
+    final next = [..._profiles, Profile(name: name)];
+    setState(() {
+      _profiles = next;
+      _activeIndex = next.length - 1;
+      _applyProfile(_profiles[_activeIndex]);
+    });
+    _persistSettings();
+  }
+
+  Future<void> _renameActiveProfile() async {
+    final current =
+        _activeIndex < _profiles.length ? _profiles[_activeIndex].name : '';
+    final name = await _promptName('Profil umbenennen', current);
+    if (name == null) return;
+    setState(() {
+      _profiles[_activeIndex] = _currentProfile().copyWith(name: name);
+    });
+    _persistSettings();
+  }
+
+  void _deleteActiveProfile() {
+    if (_profiles.length <= 1) return;
+    final next = [..._profiles]..removeAt(_activeIndex);
+    setState(() {
+      _profiles = next;
+      _activeIndex = _activeIndex.clamp(0, next.length - 1);
+      _applyProfile(_profiles[_activeIndex]);
+    });
+    _persistSettings();
+  }
+
+  Future<String?> _promptName(String title, String initial) async {
+    final ctrl = TextEditingController(text: initial);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Name'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Abbrechen')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    return (name != null && name.isNotEmpty) ? name : null;
+  }
 
   Future<void> _checkForUpdate() async {
     try {
@@ -801,6 +899,16 @@ class _UpdaterPageState extends State<UpdaterPage>
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            _ProfileBar(
+              profiles: _profiles,
+              activeIndex: _activeIndex.clamp(0, _profiles.length - 1),
+              enabled: !_busy,
+              onSwitch: _switchProfile,
+              onAdd: _addProfile,
+              onRename: _renameActiveProfile,
+              onDelete: _profiles.length > 1 ? _deleteActiveProfile : null,
+            ),
+            const SizedBox(height: 8),
             if (_update != null) ...[
               _UpdateBanner(
                 release: _update!,
@@ -963,6 +1071,71 @@ class _UpdaterPageState extends State<UpdaterPage>
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ProfileBar extends StatelessWidget {
+  const _ProfileBar({
+    required this.profiles,
+    required this.activeIndex,
+    required this.enabled,
+    required this.onSwitch,
+    required this.onAdd,
+    required this.onRename,
+    this.onDelete,
+  });
+
+  final List<Profile> profiles;
+  final int activeIndex;
+  final bool enabled;
+  final ValueChanged<int> onSwitch;
+  final VoidCallback onAdd;
+  final VoidCallback onRename;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Icon(Icons.dns_outlined, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: DropdownButton<int>(
+            value: activeIndex,
+            isExpanded: true,
+            underline: const SizedBox.shrink(),
+            onChanged: enabled
+                ? (i) {
+                    if (i != null) onSwitch(i);
+                  }
+                : null,
+            items: [
+              for (var i = 0; i < profiles.length; i++)
+                DropdownMenuItem(
+                  value: i,
+                  child: Text(profiles[i].name,
+                      overflow: TextOverflow.ellipsis),
+                ),
+            ],
+          ),
+        ),
+        IconButton(
+          onPressed: enabled ? onRename : null,
+          icon: const Icon(Icons.edit_outlined),
+          tooltip: 'Profil umbenennen',
+        ),
+        IconButton(
+          onPressed: enabled ? onAdd : null,
+          icon: const Icon(Icons.add),
+          tooltip: 'Neues Profil',
+        ),
+        IconButton(
+          onPressed: (enabled && onDelete != null) ? onDelete : null,
+          icon: const Icon(Icons.delete_outline),
+          tooltip: 'Profil löschen',
+        ),
+      ],
     );
   }
 }

@@ -1,22 +1,22 @@
 import 'package:evcc_updater/main.dart';
 import 'package:evcc_updater/src/authenticator.dart';
-import 'package:evcc_updater/src/settings_store.dart';
+import 'package:evcc_updater/src/profiles.dart';
 import 'package:evcc_updater/src/update_check.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// In-memory store so the widget test never touches platform channels.
-class _FakeStore extends SettingsStore {
-  _FakeStore([this._initial = Settings.empty]);
+/// In-memory config store so the widget test never touches platform channels.
+class _FakeStore extends AppConfigStore {
+  _FakeStore([this._initial = AppConfig.initial]);
 
-  final Settings _initial;
-  Settings saved = Settings.empty;
-
-  @override
-  Future<Settings> load() async => _initial;
+  final AppConfig _initial;
+  AppConfig saved = AppConfig.initial;
 
   @override
-  Future<void> save(Settings s) async => saved = s;
+  Future<AppConfig> load() async => _initial;
+
+  @override
+  Future<void> save(AppConfig c) async => saved = c;
 }
 
 /// Authenticator that is available but always denies — keeps the app locked.
@@ -32,8 +32,8 @@ class _DenyAuth implements Authenticator {
 final _noUpdateChecker =
     UpdateChecker(getJson: (_) async => <String, dynamic>{});
 
-Widget _page() =>
-    MaterialApp(home: UpdaterPage(store: _FakeStore(), updateChecker: _noUpdateChecker));
+Widget _page() => MaterialApp(
+    home: UpdaterPage(store: _FakeStore(), updateChecker: _noUpdateChecker));
 
 void main() {
   // A tall phone-sized surface so the whole single screen fits (the ListView
@@ -67,14 +67,13 @@ void main() {
     await tester.pumpWidget(_page());
     await tester.pumpAndSettle();
 
-    await tester.tap(
-        find.widgetWithText(FilledButton, 'evcc aktualisieren'));
+    await tester.tap(find.widgetWithText(FilledButton, 'evcc aktualisieren'));
     await tester.pump(); // surface the SnackBar
 
     expect(find.text('Bitte Host/IP eintragen.'), findsOneWidget);
   });
 
-  testWidgets('auto-saves settings shortly after a field is edited',
+  testWidgets('auto-saves the active profile shortly after a field is edited',
       (tester) async {
     useTallScreen(tester);
     final store = _FakeStore();
@@ -87,18 +86,15 @@ void main() {
         find.widgetWithText(TextField, 'Host / IP'), '192.168.1.50');
     await tester.pump(const Duration(seconds: 1)); // past the 800ms debounce
 
-    expect(store.saved.host, '192.168.1.50');
+    expect(store.saved.active.host, '192.168.1.50');
   });
 
   testWidgets('shows the lock screen when app-lock is on and not unlocked',
       (tester) async {
     useTallScreen(tester);
-    final store = _FakeStore(const Settings(
-      host: '',
-      port: '22',
-      username: 'pi',
-      password: '',
-      fullUpgrade: false,
+    final store = _FakeStore(const AppConfig(
+      profiles: [Profile(name: 'Standard')],
+      activeIndex: 0,
       lockEnabled: true,
     ));
     await tester.pumpWidget(MaterialApp(
