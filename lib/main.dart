@@ -346,18 +346,27 @@ class _UpdaterPageState extends State<UpdaterPage>
   }
 
   Future<void> _run({required bool dryRun}) async {
-    // Before a real update, show evcc's latest release notes (fail-soft).
+    if (_busy) return;
+    // Before a real update, show evcc's latest release notes (fail-soft). Mark
+    // busy during the fetch/confirm so all action buttons disable — otherwise
+    // the network await opens a window for double-taps / concurrent SSH ops.
     if (!dryRun) {
+      setState(() => _busy = true);
       final rel = await fetchEvccRelease();
       if (!mounted) return;
-      if (rel != null &&
-          !await _confirm(
-              'evcc ${rel.version} installieren?', _notesExcerpt(rel.notes))) {
+      final proceed = rel == null ||
+          await _confirm(
+              'evcc ${rel.version} installieren?', _notesExcerpt(rel.notes));
+      if (!proceed) {
+        if (mounted) setState(() => _busy = false);
         return;
       }
     }
     final config = _prepare();
-    if (config == null) return;
+    if (config == null) {
+      if (mounted) setState(() => _busy = false);
+      return;
+    }
     _lastAction = () => _run(dryRun: dryRun);
     await _guard(() async {
       final summary = await _updater.run(
