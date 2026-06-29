@@ -4,6 +4,11 @@ part of '../main.dart';
 // main.dart. Kept as a part so they stay library-private and share the
 // top-level theme constants (kGreen/kBlack/kCard) without re-importing.
 
+enum _ProfileAction { rename, delete }
+
+/// Active-Pi selector. A bordered card matching [_ConnectionCard]; each profile
+/// is a one-tap ChoiceChip (active one filled green), with a tinted "+ Profil"
+/// add chip and rename/delete folded into a single overflow menu.
 class _ProfileBar extends StatelessWidget {
   const _ProfileBar({
     required this.profiles,
@@ -25,46 +30,110 @@ class _ProfileBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const Icon(Icons.dns_outlined, size: 18),
-        const SizedBox(width: 8),
-        Expanded(
-          child: DropdownButton<int>(
-            value: activeIndex,
-            isExpanded: true,
-            underline: const SizedBox.shrink(),
-            onChanged: enabled
-                ? (i) {
-                    if (i != null) onSwitch(i);
-                  }
-                : null,
-            items: [
-              for (var i = 0; i < profiles.length; i++)
-                DropdownMenuItem(
-                  value: i,
-                  child: Text(profiles[i].name,
-                      overflow: TextOverflow.ellipsis),
+    final cs = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+
+    final chips = <Widget>[
+      for (var i = 0; i < profiles.length; i++)
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: ChoiceChip(
+            label: Text(profiles[i].name, overflow: TextOverflow.ellipsis),
+            selected: i == activeIndex,
+            showCheckmark: false,
+            visualDensity: VisualDensity.compact,
+            selectedColor: kGreen,
+            backgroundColor: Colors.transparent,
+            labelStyle: TextStyle(
+              color: i == activeIndex ? kBlack : cs.onSurface,
+              fontWeight:
+                  i == activeIndex ? FontWeight.w600 : FontWeight.w500,
+            ),
+            shape: StadiumBorder(
+              side: BorderSide(
+                color: i == activeIndex
+                    ? Colors.transparent
+                    : (dark ? Colors.white24 : cs.outlineVariant),
+              ),
+            ),
+            onSelected: enabled ? (_) => onSwitch(i) : null,
+          ),
+        ),
+      Tooltip(
+        message: 'Neues Profil',
+        child: ActionChip(
+          avatar: Icon(Icons.add,
+              size: 18, color: enabled ? kGreen : cs.onSurfaceVariant),
+          label: const Text('Profil'),
+          visualDensity: VisualDensity.compact,
+          backgroundColor: kGreen.withValues(alpha: dark ? 0.10 : 0.08),
+          shape: StadiumBorder(
+              side: BorderSide(color: kGreen.withValues(alpha: 0.5))),
+          onPressed: enabled ? onAdd : null,
+        ),
+      ),
+    ];
+
+    return IgnorePointer(
+      ignoring: !enabled,
+      child: AnimatedOpacity(
+        opacity: enabled ? 1 : 0.6,
+        duration: const Duration(milliseconds: 150),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+          decoration: BoxDecoration(
+            color: dark ? kCard : cs.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(16),
+            border:
+                Border.all(color: dark ? Colors.white10 : cs.outlineVariant),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.dns_outlined, size: 18, color: cs.onSurfaceVariant),
+              const SizedBox(width: 12),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(children: chips),
                 ),
+              ),
+              PopupMenuButton<_ProfileAction>(
+                enabled: enabled,
+                tooltip: 'Profil-Aktionen',
+                icon: const Icon(Icons.more_vert),
+                onSelected: (a) {
+                  switch (a) {
+                    case _ProfileAction.rename:
+                      onRename();
+                    case _ProfileAction.delete:
+                      onDelete?.call();
+                  }
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(
+                    value: _ProfileAction.rename,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.edit_outlined),
+                      title: Text('Profil umbenennen'),
+                    ),
+                  ),
+                  if (onDelete != null)
+                    PopupMenuItem(
+                      value: _ProfileAction.delete,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.delete_outline, color: cs.error),
+                        title: Text('Profil löschen',
+                            style: TextStyle(color: cs.error)),
+                      ),
+                    ),
+                ],
+              ),
             ],
           ),
         ),
-        IconButton(
-          onPressed: enabled ? onRename : null,
-          icon: const Icon(Icons.edit_outlined),
-          tooltip: 'Profil umbenennen',
-        ),
-        IconButton(
-          onPressed: enabled ? onAdd : null,
-          icon: const Icon(Icons.add),
-          tooltip: 'Neues Profil',
-        ),
-        IconButton(
-          onPressed: (enabled && onDelete != null) ? onDelete : null,
-          icon: const Icon(Icons.delete_outline),
-          tooltip: 'Profil löschen',
-        ),
-      ],
+      ),
     );
   }
 }

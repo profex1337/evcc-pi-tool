@@ -110,6 +110,27 @@ void main() {
     expect(store.saved.profiles.last.name, 'Eltern');
   });
 
+  testWidgets('tapping a profile chip switches the active Pi', (tester) async {
+    useTallScreen(tester);
+    final store = _FakeStore(const AppConfig(
+      profiles: [
+        Profile(name: 'Standard', host: '1.1.1.1'),
+        Profile(name: 'Eltern', host: '2.2.2.2'),
+      ],
+      activeIndex: 0,
+    ));
+    await tester.pumpWidget(MaterialApp(
+      home: UpdaterPage(store: store, updateChecker: _noUpdateChecker),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Eltern')); // the inactive profile chip
+    await tester.pumpAndSettle();
+
+    expect(store.saved.activeIndex, 1); // switch persisted immediately
+    expect(store.saved.active.host, '2.2.2.2');
+  });
+
   testWidgets('the update button label tracks the full-upgrade toggle',
       (tester) async {
     useTallScreen(tester);
