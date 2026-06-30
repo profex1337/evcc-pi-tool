@@ -365,9 +365,14 @@ class EvccUpdater {
 
         // ---- pending apt upgrades (shared by evcc-apt + System) ----
         // No sudo: a simulated full-upgrade. Tells the pending count AND which
-        // packages (e.g. evcc) actually have an update in the local index.
+        // packages (e.g. evcc) actually have an update in the local index. Only
+        // trust it (updateKnown) when the simulation actually produced a summary
+        // and didn't error — otherwise we'd claim "Aktuell" on a broken apt.
         final pend = await runner.run(systemPendingCommand);
-        final pendingCount = parsePendingUpdates(pend.stdout) ?? 0;
+        final pending = parsePendingUpdates(pend.stdout);
+        final aptKnown =
+            pending != null && (pend.exitCode == null || pend.exitCode == 0);
+        final pendingCount = pending ?? 0;
         final aptUpgrades = parseAptUpgrades(pend.stdout);
 
         // ---- evcc (apt or docker) ----
@@ -385,7 +390,7 @@ class EvccUpdater {
             // We know currency from the apt simulation (best-effort: depends on
             // the local package index being reasonably fresh).
             updateAvailable: aptUpgrades.contains('evcc'),
-            updateKnown: true,
+            updateKnown: aptKnown,
             detail: 'apt · Dienst ${active ? 'aktiv' : 'inaktiv'}',
           ));
         } else {
@@ -414,7 +419,7 @@ class EvccUpdater {
             version: pver.version,
             active: blocking,
             updateAvailable: pver.updateAvailable,
-            updateKnown: true,
+            updateKnown: pver.latestKnown,
             detail: blocking ? 'Blocking aktiv' : 'Blocking aus',
           ));
         } else {
@@ -442,7 +447,7 @@ class EvccUpdater {
           version: parseOsPrettyName(os.stdout),
           active: true,
           updateAvailable: pendingCount > 0,
-          updateKnown: true,
+          updateKnown: aptKnown,
           detail: pendingCount > 0 ? '$pendingCount Updates verfügbar' : 'aktuell',
         ));
 
@@ -1051,7 +1056,16 @@ class EvccUpdater {
     try {
       log('Verbinde mit ${config.username}@${config.host}:${config.port} …');
       await runner.connect();
-      return await body(runner, log);
+      final result = await body(runner, log);
+      // Closing the connection mid-command doesn't always make run() throw —
+      // dartssh2 ends the channel stream normally, so a single-command action
+      // would otherwise return a partial result and look "successful". Treat a
+      // requested cancel as cancelled regardless of how the body finished.
+      if (_cancelRequested) {
+        throw const EvccUpdateException(
+            UpdateErrorKind.cancelled, 'Abgebrochen.');
+      }
+      return result;
     } catch (e) {
       // A user-requested cancel closed the connection mid-action; whatever low
       // -level error that surfaced (socket/SSH) is reported as a clean cancel.

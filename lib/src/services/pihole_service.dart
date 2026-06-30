@@ -22,7 +22,18 @@ const String piholeRestartCommand = 'LC_ALL=C sudo -S pihole restartdns';
 class PiholeVersion {
   final String version;
   final bool updateAvailable;
-  const PiholeVersion({required this.version, required this.updateAvailable});
+
+  /// Whether `pihole -v` actually reported a "(Latest: …)" field. When false we
+  /// couldn't determine currency (fresh install before the update-check cron,
+  /// offline, format change), so [updateAvailable] being false means "unknown",
+  /// not "up to date".
+  final bool latestKnown;
+
+  const PiholeVersion({
+    required this.version,
+    required this.updateAvailable,
+    required this.latestKnown,
+  });
 }
 
 // Matches both v5 ("Pi-hole version is v5.x (Latest: v5.y)") and
@@ -40,6 +51,7 @@ PiholeVersion? parsePiholeVersion(String output) {
   return PiholeVersion(
     version: current,
     updateAvailable: latest != null && latest != current,
+    latestKnown: latest != null,
   );
 }
 

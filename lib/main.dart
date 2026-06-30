@@ -742,6 +742,7 @@ class _UpdaterPageState extends State<UpdaterPage>
     if (_busy) return;
     final config = _prepare();
     if (config == null) return;
+    _lastAction = _restoreBackup; // before the first guard (trust-and-retry)
     List<String>? backups; // stays null if listing errored (surfaced by _guard)
     await _guard(() async {
       backups = await _updater.listBackups(config: config, onLog: _appendLog);
@@ -1411,7 +1412,10 @@ class _UpdaterPageState extends State<UpdaterPage>
                     _CardAction('Live-Status', _showApiStatus),
                     _CardAction('Dienst neustarten', _restartService),
                     _CardAction('Status / Logs anzeigen', _showStatus),
-                    _CardAction('Backup wiederherstellen', _restoreBackup),
+                    // Backups are made only for apt installs; restore would also
+                    // `systemctl start evcc`, which has no unit on a Docker host.
+                    if (s.detail.startsWith('apt'))
+                      _CardAction('Backup wiederherstellen', _restoreBackup),
                   ]
                 : const [],
           ));

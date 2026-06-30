@@ -32,6 +32,19 @@ void main() {
       expect(v.updateAvailable, isTrue);
     });
 
+    test('no "(Latest: …)" field → latestKnown false, so currency is unknown',
+        () {
+      final v = parsePiholeVersion('Core version is v6.0.4');
+      expect(v!.version, 'v6.0.4');
+      expect(v.latestKnown, isFalse);
+      expect(v.updateAvailable, isFalse);
+    });
+
+    test('with "(Latest: …)" → latestKnown true', () {
+      final v = parsePiholeVersion('Core version is v6.0.4 (Latest: v6.0.4)');
+      expect(v!.latestKnown, isTrue);
+    });
+
     test('null when Pi-hole is not installed (no version line)', () {
       expect(parsePiholeVersion(''), isNull);
       expect(parsePiholeVersion('bash: pihole: command not found'), isNull);

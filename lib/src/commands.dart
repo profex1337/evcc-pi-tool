@@ -466,6 +466,7 @@ systemctl enable --now evcc
 String buildBackupScript() {
   return r'''
 mkdir -p /var/backups/evcc
+chmod 0755 /var/backups/evcc 2>/dev/null || true
 ts=$(date +%Y%m%d-%H%M%S)
 out="/var/backups/evcc/evcc-backup-$ts.tar.gz"
 files=""
@@ -481,7 +482,7 @@ if [ -z "$db" ] || [ ! -f "$db" ]; then
 fi
 if [ -n "$db" ] && [ -f "$db" ]; then files="$files $db"; fi
 if [ -z "$files" ]; then echo "EVCC_BACKUP_EMPTY"; exit 0; fi
-if tar -czf "$out" $files; then echo "EVCC_BACKUP_OK $out"; else echo "EVCC_BACKUP_FAIL"; exit 1; fi
+if tar -czf "$out" $files; then chmod 0644 "$out" 2>/dev/null || true; echo "EVCC_BACKUP_OK $out"; else echo "EVCC_BACKUP_FAIL"; exit 1; fi
 ''';
 }
 

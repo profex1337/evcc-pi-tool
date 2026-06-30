@@ -86,11 +86,13 @@ class FakeSshRunner implements SshRunner {
 EvccUpdater _updaterWith(FakeSshRunner runner) =>
     EvccUpdater(runnerFactory: (_) => runner);
 
-/// A runner whose [run] never completes on its own — it hangs until [close]
-/// is called (as a real connection would when cancelled mid-command).
+/// A runner whose [run] hangs until [close] is called — mirroring dartssh2:
+/// closing the connection ends the channel stream NORMALLY, so the in-flight
+/// run() RETURNS a partial result (exitCode null) rather than throwing, and a
+/// subsequent run() throws because the client is gone.
 class _HangingRunner implements SshRunner {
   final runStarted = Completer<void>();
-  final _gate = Completer<CommandResult>();
+  Completer<CommandResult>? _gate;
   bool closed = false;
 
   @override
@@ -99,15 +101,18 @@ class _HangingRunner implements SshRunner {
   @override
   Future<CommandResult> run(String command,
       {String? stdin, void Function(String chunk)? onOutput}) {
+    if (closed) throw StateError('connection closed');
     if (!runStarted.isCompleted) runStarted.complete();
-    return _gate.future;
+    _gate = Completer<CommandResult>();
+    return _gate!.future;
   }
 
   @override
   Future<void> close() async {
     closed = true;
-    if (!_gate.isCompleted) {
-      _gate.completeError(const SocketException('connection closed'));
+    if (_gate != null && !_gate!.isCompleted) {
+      _gate!.complete(
+          const CommandResult(exitCode: null, stdout: '', stderr: ''));
     }
   }
 }
@@ -623,6 +628,22 @@ void main() {
             .having((e) => e.kind, 'kind', UpdateErrorKind.cancelled)),
       );
       expect(runner.closed, isTrue);
+    });
+
+    test('a single-command action reports cancelled, not false success',
+        () async {
+      // A single run() returns normally on a mid-command close (dartssh2), so
+      // this must rely on the post-body cancel check, not on run() throwing.
+      final runner = _HangingRunner();
+      final updater = EvccUpdater(runnerFactory: (_) => runner);
+      final f = updater.updatePihole(config: _config, onLog: (_) {});
+      await runner.runStarted.future;
+      await updater.cancel();
+      await expectLater(
+        f,
+        throwsA(isA<EvccUpdateException>()
+            .having((e) => e.kind, 'kind', UpdateErrorKind.cancelled)),
+      );
     });
   });
 
