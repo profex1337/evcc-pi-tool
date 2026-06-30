@@ -40,6 +40,15 @@ Diese beschreiben den Multi-Service-Stand (evcc + Pi-hole + ganzer Pi) inkl. Aff
 ## Content Rating
 - IARC-Fragebogen ausfüllen: keine Gewalt/Sexualität/Glücksspiel etc. → Ergebnis voraussichtlich **USK 0 / PEGI 3**.
 
+## Foreground-Service-Erklärung (Pflicht seit 2024)
+- Die App nutzt einen **Vordergrunddienst (Typ „Data sync")**, damit ein gestartetes
+  Update/eine Installation im Hintergrund weiterläuft. Google Play verlangt dafür
+  in der Console eine **„Berechtigungen für Vordergrunddienste"-Erklärung**:
+  - Typ **Data sync** auswählen, Begründung: „Vom Nutzer gestartetes
+    SSH-Update/-Installation auf dem eigenen Raspberry Pi muss kurzzeitig
+    weiterlaufen, wenn die App in den Hintergrund wechselt." (ggf. Demo-Video).
+  - Ohne diese Erklärung wird das Release **abgelehnt**.
+
 ## Signing
 - **Play App Signing** aktivieren. Unser Release-Keystore wird zum **Upload-Key**
   (Secrets `KEYSTORE_*` sind schon gesetzt; der CI-Build erzeugt das `.aab`).
@@ -54,5 +63,6 @@ Diese beschreiben den Multi-Service-Stand (evcc + Pi-hole + ganzer Pi) inkl. Aff
 - [ ] 2–8 Screenshots erstellen
 - [ ] Kontakt-E-Mail in der Console setzen
 - [ ] `.aab` aus dem CI-Artifact hochladen, Data-Safety + Content-Rating ausfüllen, Datenschutz-URL eintragen
+- [ ] **Foreground-Service-Erklärung (Data sync)** in der Console ausfüllen (siehe Abschnitt oben) – sonst Ablehnung
 - [ ] (Empfohlen) im Listing klar „inoffiziell, nicht mit evcc oder Pi-hole verbunden" erwähnen (steht schon in der Beschreibung)
 ```

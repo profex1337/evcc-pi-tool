@@ -1547,9 +1547,11 @@ class _UpdaterPageState extends State<UpdaterPage>
                   onPressed: () => showLicensePage(
                     context: context,
                     applicationName: 'Pi-Tool (inoffiziell)',
-                    applicationIcon: const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: _PromptMark(size: 56),
+                    applicationIcon: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: _PromptMark(
+                          size: 56,
+                          chevronColor: theme.colorScheme.onSurface),
                     ),
                     applicationLegalese:
                         '© 2026 KYTH. Systems UG (haftungsbeschränkt) i.G.',
