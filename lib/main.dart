@@ -10,6 +10,7 @@ import 'src/commands.dart';
 import 'src/evcc_api.dart';
 import 'src/evcc_updater.dart';
 import 'src/history.dart';
+import 'src/keep_alive.dart';
 import 'src/network_scan.dart';
 import 'src/parsing.dart';
 import 'src/profiles.dart';
@@ -94,6 +95,7 @@ class UpdaterPage extends StatefulWidget {
     this.apiClient,
     this.piFinder,
     this.evccReleaseFetcher,
+    this.keepAlive,
   });
 
   final AppConfigStore? store;
@@ -101,6 +103,10 @@ class UpdaterPage extends StatefulWidget {
   final UpdateChecker? updateChecker;
   final Authenticator? authenticator;
   final EvccApiClient? apiClient;
+
+  /// Keeps the app alive (Android foreground service) during long actions.
+  /// Injectable so tests can record start/stop without a platform channel.
+  final KeepAliveService? keepAlive;
 
   /// Discovers reachable SSH hosts on the local network. Injectable for tests.
   final Future<List<String>> Function()? piFinder;
@@ -122,6 +128,8 @@ class _UpdaterPageState extends State<UpdaterPage>
   late final Authenticator _authenticator =
       widget.authenticator ?? LocalAuthenticator();
   late final EvccApiClient _apiClient = widget.apiClient ?? EvccApiClient();
+  late final KeepAliveService _keepAlive =
+      widget.keepAlive ?? ForegroundKeepAlive();
   late final Future<List<String>> Function() _piFinder =
       widget.piFinder ?? findSshHosts;
   late final Future<EvccRelease?> Function() _fetchEvccRelease =
@@ -478,8 +486,14 @@ class _UpdaterPageState extends State<UpdaterPage>
     });
   }
 
-  /// Shared error handling + busy-reset for every action.
-  Future<void> _guard(Future<void> Function() body) async {
+  /// Shared error handling + busy-reset for every action. When
+  /// [backgroundMessage] is given, a foreground service keeps the app alive for
+  /// the duration so a long action (update/install) survives backgrounding.
+  Future<void> _guard(
+    Future<void> Function() body, {
+    String? backgroundMessage,
+  }) async {
+    if (backgroundMessage != null) await _keepAlive.begin(backgroundMessage);
     try {
       await body();
     } on EvccUpdateException catch (e) {
@@ -499,6 +513,7 @@ class _UpdaterPageState extends State<UpdaterPage>
         _statusOk = false;
       });
     } finally {
+      if (backgroundMessage != null) await _keepAlive.end();
       if (mounted) setState(() => _busy = false);
     }
   }
@@ -598,7 +613,7 @@ class _UpdaterPageState extends State<UpdaterPage>
             await _refreshServices(config);
           }
       }
-    });
+    }, backgroundMessage: dryRun ? null : 'evcc-Update läuft …');
   }
 
   Future<void> _testConnection() async {
@@ -659,7 +674,7 @@ class _UpdaterPageState extends State<UpdaterPage>
       });
       _addHistory('evcc ${res.version} installiert.');
       await _refreshServices(config);
-    });
+    }, backgroundMessage: 'evcc wird installiert …');
   }
 
   Future<void> _restartService() async {
@@ -735,7 +750,7 @@ class _UpdaterPageState extends State<UpdaterPage>
       });
       _addHistory('Pi-hole aktualisiert.');
       await _refreshServices(config);
-    });
+    }, backgroundMessage: 'Pi-hole wird aktualisiert …');
   }
 
   Future<void> _piholeGravity() async {
@@ -750,7 +765,7 @@ class _UpdaterPageState extends State<UpdaterPage>
         _statusMessage = 'Pi-hole-Blocklisten aktualisiert.';
         _statusOk = true;
       });
-    });
+    }, backgroundMessage: 'Blocklisten werden aktualisiert …');
   }
 
   Future<void> _piholeRestartDns() async {
@@ -792,7 +807,7 @@ class _UpdaterPageState extends State<UpdaterPage>
       });
       _addHistory('Pi-hole installiert.');
       await _refreshServices(config);
-    });
+    }, backgroundMessage: 'Pi-hole wird installiert …');
   }
 
   Future<void> _upgradeSystem() async {
@@ -816,7 +831,7 @@ class _UpdaterPageState extends State<UpdaterPage>
       });
       _addHistory('System-Upgrade ausgeführt.');
       await _refreshServices(config);
-    });
+    }, backgroundMessage: 'System-Upgrade läuft …');
   }
 
   void _openPiholeAdmin() {
@@ -843,7 +858,7 @@ class _UpdaterPageState extends State<UpdaterPage>
       });
       _addHistory('Home Assistant aktualisiert.');
       await _refreshServices(config);
-    });
+    }, backgroundMessage: 'Home Assistant wird aktualisiert …');
   }
 
   Future<void> _installHomeAssistant() async {
@@ -871,7 +886,7 @@ class _UpdaterPageState extends State<UpdaterPage>
       });
       _addHistory('Home Assistant installiert.');
       await _refreshServices(config);
-    });
+    }, backgroundMessage: 'Home Assistant wird installiert …');
   }
 
   void _openHomeAssistant() {
@@ -1358,11 +1373,18 @@ class _UpdaterPageState extends State<UpdaterPage>
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Text('Pi-Tool',
-            style: TextStyle(
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.3,
-                color: theme.colorScheme.primary)),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _PromptMark(size: 22, chevronColor: theme.colorScheme.onSurface),
+            const SizedBox(width: 8),
+            Text('Pi-Tool',
+                style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.3,
+                    color: theme.colorScheme.primary)),
+          ],
+        ),
         actions: [
           PopupMenuButton<String>(
             onSelected: (v) {

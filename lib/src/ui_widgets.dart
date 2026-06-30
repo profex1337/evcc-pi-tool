@@ -544,23 +544,31 @@ class _NameDialogState extends State<_NameDialog> {
 /// The app's brand mark: a shell prompt `>` with the green KYTH cursor dot.
 /// Mirrors the launcher icon (assets/icon) so in-app branding matches.
 class _PromptMark extends StatelessWidget {
-  const _PromptMark({super.key, this.size = 64});
+  const _PromptMark({super.key, this.size = 64, this.chevronColor});
 
   /// Width in logical pixels; height follows the mark's aspect ratio.
   final double size;
+
+  /// Colour of the `>` chevron. Defaults to the off-white used on the dark
+  /// launcher icon; pass a theme colour where the background may be light.
+  final Color? chevronColor;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: size,
       height: size * (432 / 446),
-      child: const CustomPaint(painter: _PromptMarkPainter()),
+      child: CustomPaint(
+          painter: _PromptMarkPainter(
+              chevronColor: chevronColor ?? const Color(0xFFE8EDE9))),
     );
   }
 }
 
 class _PromptMarkPainter extends CustomPainter {
-  const _PromptMarkPainter();
+  const _PromptMarkPainter({required this.chevronColor});
+
+  final Color chevronColor;
 
   // Group space (matches make_icon.py): 446 x 432, chevron tip at x=36,
   // vertex at x=236, dot centred at x=384. Vertical centre y=216.
@@ -576,7 +584,7 @@ class _PromptMarkPainter extends CustomPainter {
     canvas.scale(s);
 
     final chevron = Paint()
-      ..color = const Color(0xFFE8EDE9)
+      ..color = chevronColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = 72
       ..strokeCap = StrokeCap.round
@@ -592,7 +600,8 @@ class _PromptMarkPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_PromptMarkPainter oldDelegate) => false;
+  bool shouldRepaint(_PromptMarkPainter oldDelegate) =>
+      oldDelegate.chevronColor != chevronColor;
 }
 
 class _LockScreen extends StatelessWidget {

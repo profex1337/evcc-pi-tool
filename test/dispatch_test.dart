@@ -1,6 +1,7 @@
 import 'package:evcc_updater/main.dart';
 import 'package:evcc_updater/src/commands.dart';
 import 'package:evcc_updater/src/evcc_updater.dart';
+import 'package:evcc_updater/src/keep_alive.dart';
 import 'package:evcc_updater/src/parsing.dart';
 import 'package:evcc_updater/src/profiles.dart';
 import 'package:evcc_updater/src/services/pi_service.dart';
@@ -140,6 +141,21 @@ class FakeEvccUpdater extends EvccUpdater {
       haUpdateCalls++;
 }
 
+/// Records keep-alive start/stop so tests can assert a long action runs behind
+/// a foreground service while a quick one does not.
+class _FakeKeepAlive implements KeepAliveService {
+  int beginCount = 0, endCount = 0;
+  String? lastMessage;
+  @override
+  Future<void> begin(String message) async {
+    beginCount++;
+    lastMessage = message;
+  }
+
+  @override
+  Future<void> end() async => endCount++;
+}
+
 final _noUpdateChecker =
     UpdateChecker(getJson: (_) async => <String, dynamic>{});
 
@@ -156,13 +172,15 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
-  Widget page(FakeEvccUpdater updater, {Future<EvccRelease?> Function()? rel}) =>
+  Widget page(FakeEvccUpdater updater,
+          {Future<EvccRelease?> Function()? rel, KeepAliveService? keepAlive}) =>
       MaterialApp(
         home: UpdaterPage(
           store: _FakeStore(_ready),
           updater: updater,
           updateChecker: _noUpdateChecker,
           evccReleaseFetcher: rel ?? () async => null,
+          keepAlive: keepAlive,
         ),
       );
 
@@ -290,6 +308,38 @@ void main() {
     expect(u.backupCalls, 1);
     expect(u.runCalls, 1);
     expect(find.text('evcc 0.310.0 → 0.311.0 aktualisiert.'), findsOneWidget);
+  });
+
+  testWidgets('an update runs behind a foreground keep-alive (begin + end)',
+      (tester) async {
+    useTallScreen(tester);
+    final ka = _FakeKeepAlive();
+    await tester.pumpWidget(page(FakeEvccUpdater(), keepAlive: ka));
+    await tester.pumpAndSettle();
+    await detect(tester);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Aktualisieren'));
+    await tester.pumpAndSettle();
+
+    expect(ka.beginCount, 1);
+    expect(ka.endCount, 1);
+    expect(ka.lastMessage, contains('Update'));
+  });
+
+  testWidgets('a dry-run (Probelauf) does NOT start the keep-alive',
+      (tester) async {
+    useTallScreen(tester);
+    final ka = _FakeKeepAlive();
+    await tester.pumpWidget(page(FakeEvccUpdater(), keepAlive: ka));
+    await tester.pumpAndSettle();
+    await detect(tester);
+
+    await tester.tap(find.byType(PopupMenuButton<int>).first); // evcc card ⋮
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Probelauf (ändert nichts)'));
+    await tester.pumpAndSettle();
+
+    expect(ka.beginCount, 0);
   });
 
   testWidgets('evcc card on a docker install recreates the container',
