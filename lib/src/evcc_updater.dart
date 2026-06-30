@@ -491,7 +491,9 @@ class EvccUpdater {
         body: (runner, log) async {
           log('Installiere Pi-hole … (unbeaufsichtigt, dauert ein paar Minuten)');
           await _runRootScript(runner, log, config,
-              sudo: true, script: buildPiholeInstallScript());
+              sudo: true,
+              script: buildPiholeInstallScript(),
+              failMsg: 'Pi-hole-Installation fehlgeschlagen');
           log('Pi-hole installiert – Einrichtung im Browser unter /admin.');
         },
       );
@@ -594,7 +596,8 @@ class EvccUpdater {
           );
         }
 
-        await _runRootScript(runner, log, config, sudo: sudo, script: script);
+        await _runRootScript(runner, log, config,
+            sudo: sudo, script: script, failMsg: 'Docker-Update fehlgeschlagen');
 
         final verify = await runner.run(
           sudo ? dockerListSudoCommand : dockerListCommand,
@@ -621,6 +624,7 @@ class EvccUpdater {
     SshConfig config, {
     required bool sudo,
     required String script,
+    String failMsg = 'Vorgang fehlgeschlagen',
   }) async {
     final shell = sudo ? installShellCommand : 'bash -s';
     final result = await runner.run(
@@ -641,8 +645,7 @@ class EvccUpdater {
     if (result.exitCode != null && result.exitCode != 0) {
       throw EvccUpdateException(
         UpdateErrorKind.unknown,
-        'Docker-Update fehlgeschlagen (Exit ${result.exitCode}). '
-        'Details im Log.',
+        '$failMsg (Exit ${result.exitCode}). Details im Log.',
       );
     }
   }

@@ -26,9 +26,25 @@ void main() {
       expect(v!.updateAvailable, isTrue);
     });
 
+    test('keeps a pre-release tag and still flags the update', () {
+      final v = parsePiholeVersion('Core version is v6.0.4-beta (Latest: v6.0.5)');
+      expect(v!.version, 'v6.0.4-beta');
+      expect(v.updateAvailable, isTrue);
+    });
+
     test('null when Pi-hole is not installed (no version line)', () {
       expect(parsePiholeVersion(''), isNull);
       expect(parsePiholeVersion('bash: pihole: command not found'), isNull);
+    });
+  });
+
+  group('buildPiholeInstallScript', () {
+    final s = buildPiholeInstallScript();
+    test('unattended install: fetched installer (-f) + pre-seeded setupVars', () {
+      expect(s, contains('--unattended'));
+      expect(s, contains('curl -fsSL https://install.pi-hole.net'));
+      expect(s, contains('setupVars.conf'));
+      expect(s, contains('mktemp'));
     });
   });
 

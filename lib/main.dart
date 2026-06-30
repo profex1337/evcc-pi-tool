@@ -156,8 +156,6 @@ class _UpdaterPageState extends State<UpdaterPage>
   int _activeIndex = 0;
 
   final List<String> _log = [];
-  String? _versionBefore;
-  String? _versionAfter;
   String? _statusMessage;
   bool _statusOk = true;
   ReleaseInfo? _update;
@@ -450,7 +448,6 @@ class _UpdaterPageState extends State<UpdaterPage>
       _busy = true;
       _log.clear();
       _statusMessage = null;
-      _versionAfter = null;
       _setupUrl = null;
       _hostKeyIssue = false;
       _connectionOk = null; // clear the Test-Button indicator while an action runs
@@ -546,13 +543,12 @@ class _UpdaterPageState extends State<UpdaterPage>
           );
           if (!mounted) return;
           setState(() {
-            _versionBefore = null; // version badge is apt-only
-            _versionAfter = null;
             _statusMessage =
                 'evcc-Container aktualisiert (docker compose pull + up).';
             _statusOk = true;
           });
           _addHistory('evcc-Docker-Container aktualisiert.');
+          await _refreshServices(config);
         case InstallKind.apt:
           // Back up config + DB first (opt-out). A backup failure throws here
           // and is surfaced by _guard — the update does NOT proceed, so you're
@@ -570,12 +566,13 @@ class _UpdaterPageState extends State<UpdaterPage>
           );
           if (!mounted) return;
           setState(() {
-            _versionBefore = summary.before;
-            _versionAfter = summary.after;
             _statusMessage = summary.message;
             _statusOk = true;
           });
-          if (!dryRun) _addHistory(summary.message);
+          if (!dryRun) {
+            _addHistory(summary.message);
+            await _refreshServices(config);
+          }
       }
     });
   }
@@ -630,8 +627,6 @@ class _UpdaterPageState extends State<UpdaterPage>
       );
       if (!mounted) return;
       setState(() {
-        _versionBefore = res.version;
-        _versionAfter = null;
         _statusMessage = 'evcc ${res.version} installiert, '
             'Dienst ${res.serviceActive ? 'aktiv' : 'inaktiv'}. '
             'Jetzt im Browser einrichten.';
@@ -639,6 +634,7 @@ class _UpdaterPageState extends State<UpdaterPage>
         _setupUrl = _evccUiUrl();
       });
       _addHistory('evcc ${res.version} installiert.');
+      await _refreshServices(config);
     });
   }
 
@@ -714,6 +710,7 @@ class _UpdaterPageState extends State<UpdaterPage>
         _statusOk = true;
       });
       _addHistory('Pi-hole aktualisiert.');
+      await _refreshServices(config);
     });
   }
 
@@ -770,6 +767,7 @@ class _UpdaterPageState extends State<UpdaterPage>
         _setupUrl = '$_uiScheme://${_host.text.trim()}/admin';
       });
       _addHistory('Pi-hole installiert.');
+      await _refreshServices(config);
     });
   }
 
@@ -793,6 +791,7 @@ class _UpdaterPageState extends State<UpdaterPage>
         _statusOk = true;
       });
       _addHistory('System-Upgrade ausgeführt.');
+      await _refreshServices(config);
     });
   }
 
@@ -938,6 +937,18 @@ class _UpdaterPageState extends State<UpdaterPage>
       });
     } catch (_) {
       // silent — never disrupt launch
+    }
+  }
+
+  /// Re-detects the services after a successful action so the cards (LED,
+  /// version, installed-state) reflect the change instead of going stale.
+  /// Best-effort: a failed refresh keeps the last snapshot.
+  Future<void> _refreshServices(SshConfig config) async {
+    try {
+      final s = await _updater.detectServices(config: config, onLog: (_) {});
+      if (mounted) setState(() => _services = s);
+    } catch (_) {
+      // keep the last snapshot
     }
   }
 
@@ -1354,10 +1365,6 @@ class _UpdaterPageState extends State<UpdaterPage>
             ),
             const SizedBox(height: 12),
             ..._serviceCards(),
-            if (_versionBefore != null) ...[
-              _VersionBadge(before: _versionBefore, after: _versionAfter),
-              const SizedBox(height: 8),
-            ],
             if (_statusMessage != null) ...[
               const SizedBox(height: 12),
               _StatusBanner(message: _statusMessage!, ok: _statusOk),

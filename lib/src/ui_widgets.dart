@@ -574,47 +574,6 @@ class _LockScreen extends StatelessWidget {
   }
 }
 
-class _VersionBadge extends StatelessWidget {
-  const _VersionBadge({required this.before, required this.after});
-
-  final String? before;
-  final String? after;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final changed = after != null && before != after;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.bolt, size: 18),
-          const SizedBox(width: 8),
-          Text('evcc ', style: theme.textTheme.bodyMedium),
-          Text(before ?? '—',
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(fontWeight: FontWeight.bold)),
-          if (changed) ...[
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 6),
-              child: Icon(Icons.arrow_forward, size: 16),
-            ),
-            Text(after!,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.primary,
-                )),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
 class _StatusBanner extends StatelessWidget {
   const _StatusBanner({required this.message, required this.ok});
 

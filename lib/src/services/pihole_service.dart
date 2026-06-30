@@ -28,7 +28,7 @@ class PiholeVersion {
 // Matches both v5 ("Pi-hole version is v5.x (Latest: v5.y)") and
 // v6 ("Core version is v6.x (Latest: v6.y)").
 final _verLine = RegExp(
-    r'(?:Pi-hole|Core) version is (v[\d.]+)(?:\s*\(Latest:\s*(v[\d.]+)\))?',
+    r'(?:Pi-hole|Core) version is (v[\w.\-]+)(?:\s*\(Latest:\s*(v[\w.\-]+)\))?',
     caseSensitive: false);
 
 /// Parses `pihole -v`. Returns null when Pi-hole isn't installed.
@@ -72,7 +72,7 @@ if [ ! -f /etc/pihole/setupVars.conf ]; then
   } > /etc/pihole/setupVars.conf
 fi
 setup=$(mktemp)
-curl -sSL https://install.pi-hole.net -o "$setup"
+curl -fsSL https://install.pi-hole.net -o "$setup"
 bash "$setup" --unattended
 rm -f "$setup"
 ''';

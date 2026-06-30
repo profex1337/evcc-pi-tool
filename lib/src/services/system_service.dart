@@ -7,8 +7,9 @@ library;
 /// Reads `/etc/os-release` (no sudo).
 const String systemOsCommand = 'cat /etc/os-release';
 
-/// Simulates an upgrade to count pending updates (no sudo, no list refresh).
-const String systemPendingCommand = 'LC_ALL=C apt-get -s upgrade';
+/// Simulates the full-upgrade to count pending updates (no sudo, no list
+/// refresh) — matches the `apt-get full-upgrade` the System action runs.
+const String systemPendingCommand = 'LC_ALL=C apt-get -s full-upgrade';
 
 /// Human-readable uptime (no sudo).
 const String systemUptimeCommand = 'uptime -p';
