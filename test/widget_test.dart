@@ -46,29 +46,27 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
-  testWidgets('renders the single-screen updater UI', (tester) async {
-    useTallScreen(tester);
-    await tester.pumpWidget(_page());
-    await tester.pumpAndSettle();
-
-    expect(find.text('Pi-Tool'), findsOneWidget); // app bar wordmark
-    expect(find.text('evcc aktualisieren'), findsOneWidget);
-    expect(find.text('Verbindung testen'), findsOneWidget);
-    expect(find.text('Probelauf (ändert nichts)'), findsOneWidget);
-    expect(find.text('evcc installieren'), findsOneWidget);
-    expect(find.text('Komplettes System-Upgrade'), findsOneWidget);
-    expect(find.text('Live-Log'), findsOneWidget);
-    // Host/IP, Benutzer, Port, Passwort.
-    expect(find.byType(TextField), findsNWidgets(4));
-  });
-
-  testWidgets('blocks the update and warns when the host is empty',
+  testWidgets('renders the connection screen with the detect hint',
       (tester) async {
     useTallScreen(tester);
     await tester.pumpWidget(_page());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithText(FilledButton, 'evcc aktualisieren'));
+    expect(find.text('Pi-Tool'), findsOneWidget); // app bar wordmark
+    expect(find.text('Verbindung testen'), findsOneWidget); // compact Test button
+    expect(find.textContaining('Verbindung testen'), findsWidgets); // + hint
+    expect(find.text('Live-Log'), findsOneWidget);
+    // Host/IP, Benutzer, Port, Passwort.
+    expect(find.byType(TextField), findsNWidgets(4));
+  });
+
+  testWidgets('warns when testing the connection with an empty host',
+      (tester) async {
+    useTallScreen(tester);
+    await tester.pumpWidget(_page());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Verbindung testen'));
     await tester.pump(); // surface the SnackBar
 
     expect(find.text('Bitte Host/IP eintragen.'), findsOneWidget);
@@ -144,22 +142,6 @@ void main() {
 
     expect(store.saved.activeIndex, 1); // switch persisted immediately
     expect(store.saved.active.host, '2.2.2.2');
-  });
-
-  testWidgets('the update button label tracks the full-upgrade toggle',
-      (tester) async {
-    useTallScreen(tester);
-    await tester.pumpWidget(_page());
-    await tester.pumpAndSettle();
-
-    expect(find.text('evcc aktualisieren'), findsOneWidget);
-    expect(find.text('Alle Pakete aktualisieren'), findsNothing);
-
-    await tester.tap(find.text('Komplettes System-Upgrade'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Alle Pakete aktualisieren'), findsOneWidget);
-    expect(find.text('evcc aktualisieren'), findsNothing);
   });
 
   testWidgets('Pi finden fills the host field from a scan result',

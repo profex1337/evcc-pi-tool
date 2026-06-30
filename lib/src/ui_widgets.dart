@@ -210,6 +210,141 @@ class _TestButton extends StatelessWidget {
   }
 }
 
+/// One entry in a service card's ⋮ menu.
+class _CardAction {
+  const _CardAction(this.label, this.onTap);
+  final String label;
+  final VoidCallback onTap;
+}
+
+/// A detected-service card (style B): name + status LED + version (mono) +
+/// primary Aktualisieren/Installieren, an optional "Oberfläche öffnen" link and
+/// a ⋮ menu of extra actions. Mirrors the connection card's shape.
+class _ServiceCard extends StatelessWidget {
+  const _ServiceCard({
+    required this.status,
+    required this.icon,
+    required this.primaryLabel,
+    required this.onPrimary,
+    required this.enabled,
+    this.onOpenWeb,
+    this.actions = const [],
+  });
+
+  final ServiceStatus status;
+  final IconData icon;
+  final String primaryLabel; // "Aktualisieren" | "Installieren"
+  final VoidCallback onPrimary;
+  final bool enabled;
+  final VoidCallback? onOpenWeb;
+  final List<_CardAction> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final mono = Theme.of(context)
+        .textTheme
+        .bodySmall
+        ?.copyWith(fontFamily: 'monospace', color: cs.onSurfaceVariant);
+
+    // Status LED: not installed → grey; update → amber; active → green;
+    // installed-but-inactive → red.
+    final Color led;
+    if (!status.installed) {
+      led = cs.onSurfaceVariant;
+    } else if (status.updateAvailable) {
+      led = const Color(0xFFE0A030);
+    } else if (status.active) {
+      led = kGreen;
+    } else {
+      led = cs.error;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(16, 10, 8, 12),
+      decoration: BoxDecoration(
+        color: dark ? kCard : cs.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: dark ? Colors.white10 : cs.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 20, color: cs.onSurfaceVariant),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(status.name,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 15)),
+              ),
+              Icon(Icons.circle, size: 10, color: led),
+              const SizedBox(width: 6),
+              Text(
+                status.installed
+                    ? (status.updateAvailable
+                        ? 'Update'
+                        : (status.active ? 'aktiv' : 'inaktiv'))
+                    : 'nicht installiert',
+                style: TextStyle(color: led, fontSize: 12),
+              ),
+              if (actions.isNotEmpty)
+                PopupMenuButton<int>(
+                  enabled: enabled,
+                  tooltip: '${status.name}-Aktionen',
+                  icon: const Icon(Icons.more_vert),
+                  onSelected: (i) => actions[i].onTap(),
+                  itemBuilder: (_) => [
+                    for (var i = 0; i < actions.length; i++)
+                      PopupMenuItem(value: i, child: Text(actions[i].label)),
+                  ],
+                )
+              else
+                const SizedBox(width: 8),
+            ],
+          ),
+          if (status.installed && (status.version != null || status.detail.isNotEmpty))
+            Padding(
+              padding: const EdgeInsets.only(left: 30, bottom: 6),
+              child: Text(
+                [status.version, status.detail]
+                    .where((s) => s != null && s.isNotEmpty)
+                    .join('  ·  '),
+                style: mono,
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.only(left: 30, right: 8, top: 2),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: enabled ? onPrimary : null,
+                    style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(42)),
+                    child: Text(primaryLabel),
+                  ),
+                ),
+                if (onOpenWeb != null) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: onOpenWeb,
+                    icon: const Icon(Icons.open_in_browser),
+                    tooltip: 'Oberfläche öffnen',
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ConnectionCard extends StatelessWidget {
   const _ConnectionCard({
     required this.host,

@@ -13,6 +13,7 @@ import 'src/history.dart';
 import 'src/network_scan.dart';
 import 'src/parsing.dart';
 import 'src/profiles.dart';
+import 'src/services/pi_service.dart';
 import 'src/settings_store.dart';
 import 'src/ssh_runner.dart';
 import 'src/update_check.dart';
@@ -150,6 +151,7 @@ class _UpdaterPageState extends State<UpdaterPage>
   bool _backupBeforeUpdate = true;
   bool _testing = false; // a "Verbindung testen" run is in flight
   bool? _connectionOk; // null=untested, true=ok, false=failed (Test-Button color)
+  List<ServiceStatus> _services = []; // detected services → service cards
   List<Profile> _profiles = [const Profile(name: 'Standard')]; // growable
   int _activeIndex = 0;
 
@@ -585,34 +587,19 @@ class _UpdaterPageState extends State<UpdaterPage>
     _lastAction = _testConnection;
     setState(() => _testing = true);
     await _guard(() async {
-      final d = await _updater.detectInstall(config: config, onLog: _appendLog);
+      final services =
+          await _updater.detectServices(config: config, onLog: _appendLog);
       if (!mounted) return;
       setState(() {
-        switch (d.kind) {
-          case InstallKind.apt:
-            _versionBefore = d.aptVersion;
-            _versionAfter = null;
-            _statusMessage = 'Verbindung OK – evcc ${d.aptVersion} (apt), '
-                'Dienst ${d.serviceActive ? 'aktiv' : 'inaktiv'}.';
-            _statusOk = true;
-          case InstallKind.docker:
-            _versionBefore = null;
-            _versionAfter = null;
-            _statusMessage =
-                'Verbindung OK – evcc läuft via Docker (Container '
-                '"${d.container!.name}", Image ${d.container!.image}).';
-            _statusOk = true;
-          case InstallKind.unknown:
-            _versionBefore = null;
-            _versionAfter = null;
-            _statusMessage = 'Verbindung steht, aber evcc wurde nicht gefunden '
-                '(weder apt-Paket noch Docker-Container).';
-            _statusOk = false;
-        }
+        _services = services;
+        final found =
+            services.where((s) => s.installed).map((s) => s.name).join(', ');
+        _statusMessage = 'Verbindung OK – erkannt: $found.';
+        _statusOk = true;
       });
     });
-    // Drive the Test-Button colour from the outcome (_statusOk reflects success
-    // for apt/docker and failure for unknown / any thrown error via _guard).
+    // Drive the Test-Button colour from the outcome (success populated the
+    // cards; any thrown error set _statusOk=false via _guard).
     if (mounted) {
       setState(() {
         _testing = false;
@@ -710,6 +697,111 @@ class _UpdaterPageState extends State<UpdaterPage>
         _statusOk = true;
       });
     });
+  }
+
+  // ---- Pi-hole + System service actions ----
+
+  Future<void> _updatePihole() async {
+    if (_busy) return;
+    final config = _prepare();
+    if (config == null) return;
+    _lastAction = _updatePihole;
+    await _guard(() async {
+      await _updater.updatePihole(config: config, onLog: _appendLog);
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = 'Pi-hole aktualisiert.';
+        _statusOk = true;
+      });
+      _addHistory('Pi-hole aktualisiert.');
+    });
+  }
+
+  Future<void> _piholeGravity() async {
+    if (_busy) return;
+    final config = _prepare();
+    if (config == null) return;
+    _lastAction = _piholeGravity;
+    await _guard(() async {
+      await _updater.updatePiholeGravity(config: config, onLog: _appendLog);
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = 'Pi-hole-Blocklisten aktualisiert.';
+        _statusOk = true;
+      });
+    });
+  }
+
+  Future<void> _piholeRestartDns() async {
+    if (_busy) return;
+    final config = _prepare();
+    if (config == null) return;
+    _lastAction = _piholeRestartDns;
+    await _guard(() async {
+      await _updater.restartPiholeDns(config: config, onLog: _appendLog);
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = 'Pi-hole-DNS neu gestartet.';
+        _statusOk = true;
+      });
+    });
+  }
+
+  Future<void> _installPihole() async {
+    if (_busy) return;
+    if (!await _confirm(
+      'Pi-hole installieren?',
+      'Installiert Pi-hole unbeaufsichtigt auf ${_host.text.trim()}.\n\n'
+          'Experimentell: nicht gegen jede Konfiguration getestet; die '
+          'Einrichtung erfolgt danach im Browser unter /admin.',
+    )) {
+      return;
+    }
+    final config = _prepare();
+    if (config == null) return;
+    _lastAction = _installPihole;
+    await _guard(() async {
+      await _updater.installPihole(config: config, onLog: _appendLog);
+      if (!mounted) return;
+      setState(() {
+        _statusMessage =
+            'Pi-hole installiert – im Browser unter /admin einrichten.';
+        _statusOk = true;
+        _setupUrl = '$_uiScheme://${_host.text.trim()}/admin';
+      });
+      _addHistory('Pi-hole installiert.');
+    });
+  }
+
+  Future<void> _upgradeSystem() async {
+    if (_busy) return;
+    if (!await _confirm(
+      'System aktualisieren?',
+      'Aktualisiert ALLE Pakete auf dem Pi (apt full-upgrade), nicht nur einen '
+          'einzelnen Dienst.',
+    )) {
+      return;
+    }
+    final config = _prepare();
+    if (config == null) return;
+    _lastAction = _upgradeSystem;
+    await _guard(() async {
+      await _updater.upgradeSystem(config: config, onLog: _appendLog);
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = 'System aktualisiert.';
+        _statusOk = true;
+      });
+      _addHistory('System-Upgrade ausgeführt.');
+    });
+  }
+
+  void _openPiholeAdmin() {
+    if (_host.text.trim().isEmpty) {
+      _snack('Bitte zuerst Host/IP eintragen.');
+      return;
+    }
+    _openUrl('$_uiScheme://${_host.text.trim()}/admin');
   }
 
   /// Re-trust a changed host key, then retry the action that hit it.
@@ -833,31 +925,16 @@ class _UpdaterPageState extends State<UpdaterPage>
     if (_authMode == AuthMode.key && _privateKey.text.trim().isEmpty) return;
     try {
       // Silent launch check stays password-free: never escalate docker to sudo
-      // here (that only happens on an explicit "Verbindung testen"/update).
-      final d = await _updater.detectInstall(
+      // here (only an explicit "Verbindung testen"/action does that).
+      final services = await _updater.detectServices(
         config: _configFor(port),
         onLog: (_) {},
         allowSudoForDocker: false,
       );
-      // Don't clobber the banner if the user kicked off a real action meanwhile.
-      if (!mounted || _busy) return;
+      if (!mounted || _busy) return; // don't clobber an action started meanwhile
       setState(() {
-        switch (d.kind) {
-          case InstallKind.apt:
-            _versionBefore = d.aptVersion;
-            _versionAfter = null;
-            _statusMessage = 'evcc ${d.aptVersion} (apt), '
-                'Dienst ${d.serviceActive ? 'aktiv' : 'inaktiv'}.';
-            _statusOk = true;
-          case InstallKind.docker:
-            _versionBefore = null;
-            _versionAfter = null;
-            _statusMessage =
-                'evcc via Docker (Container "${d.container!.name}").';
-            _statusOk = true;
-          case InstallKind.unknown:
-            break; // stay silent at launch when nothing is found
-        }
+        _services = services;
+        _connectionOk = true;
       });
     } catch (_) {
       // silent — never disrupt launch
@@ -1090,6 +1167,79 @@ class _UpdaterPageState extends State<UpdaterPage>
     );
   }
 
+  /// Builds a card per detected service (or a hint before the first test).
+  List<Widget> _serviceCards() {
+    if (_services.isEmpty) {
+      final cs = Theme.of(context).colorScheme;
+      return [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: [
+              Icon(Icons.lan_outlined, size: 18, color: cs.onSurfaceVariant),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Tippe „Verbindung testen", um die Dienste auf dem Pi zu '
+                  'erkennen.',
+                  style: TextStyle(color: cs.onSurfaceVariant),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ];
+    }
+    final cards = <Widget>[];
+    for (final s in _services) {
+      switch (s.id) {
+        case 'evcc':
+          cards.add(_ServiceCard(
+            status: s,
+            icon: Icons.bolt,
+            enabled: !_busy,
+            primaryLabel: s.installed ? 'Aktualisieren' : 'evcc installieren',
+            onPrimary: s.installed ? () => _run(dryRun: false) : _install,
+            onOpenWeb: s.installed ? _openEvccUi : null,
+            actions: s.installed
+                ? [
+                    _CardAction(
+                        'Probelauf (ändert nichts)', () => _run(dryRun: true)),
+                    _CardAction('Live-Status', _showApiStatus),
+                    _CardAction('Dienst neustarten', _restartService),
+                    _CardAction('Status / Logs anzeigen', _showStatus),
+                  ]
+                : const [],
+          ));
+        case 'pihole':
+          cards.add(_ServiceCard(
+            status: s,
+            icon: Icons.shield_outlined,
+            enabled: !_busy,
+            primaryLabel: s.installed ? 'Aktualisieren' : 'Pi-hole installieren',
+            onPrimary: s.installed ? _updatePihole : _installPihole,
+            onOpenWeb: s.installed ? _openPiholeAdmin : null,
+            actions: s.installed
+                ? [
+                    _CardAction('Blocklisten aktualisieren', _piholeGravity),
+                    _CardAction('DNS neustarten', _piholeRestartDns),
+                  ]
+                : const [],
+          ));
+        case 'system':
+          cards.add(_ServiceCard(
+            status: s,
+            icon: Icons.memory,
+            enabled: !_busy,
+            primaryLabel: 'Updates installieren',
+            onPrimary: _upgradeSystem,
+            actions: [_CardAction('Pi neustarten', _reboot)],
+          ));
+      }
+    }
+    return cards;
+  }
+
   // ---- build ---------------------------------------------------------------
 
   @override
@@ -1202,74 +1352,12 @@ class _UpdaterPageState extends State<UpdaterPage>
                 _scheduleSave();
               },
             ),
-            const SizedBox(height: 8),
-            SwitchListTile(
-              value: _fullUpgrade,
-              onChanged: _busy
-                  ? null
-                  : (v) {
-                      setState(() => _fullUpgrade = v);
-                      _scheduleSave();
-                    },
-              title: const Text('Komplettes System-Upgrade'),
-              subtitle: Text(_fullUpgrade
-                  ? 'apt-get full-upgrade (alle Pakete)'
-                  : 'Aus → nur evcc wird aktualisiert'),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-            ),
-            const SizedBox(height: 8),
-            if (_versionBefore != null)
+            const SizedBox(height: 12),
+            ..._serviceCards(),
+            if (_versionBefore != null) ...[
               _VersionBadge(before: _versionBefore, after: _versionAfter),
-            if (_versionBefore != null) const SizedBox(height: 8),
-            FilledButton.icon(
-              onPressed: _busy ? null : () => _run(dryRun: false),
-              icon: _busy
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.system_update_alt),
-              label: Text(_busy
-                  ? 'Läuft …'
-                  : (_fullUpgrade
-                      ? 'Alle Pakete aktualisieren'
-                      : 'evcc aktualisieren')),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(52),
-                textStyle: const TextStyle(fontSize: 16),
-              ),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: _busy ? null : () => _run(dryRun: true),
-              icon: const Icon(Icons.science_outlined),
-              label: const Text('Probelauf (ändert nichts)'),
-              style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(44)),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                const Expanded(child: Divider()),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: Text('Erstinstallation auf neuem Pi',
-                      style: theme.textTheme.labelSmall
-                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                ),
-                const Expanded(child: Divider()),
-              ],
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: _busy ? null : _install,
-              icon: const Icon(Icons.install_mobile),
-              label: const Text('evcc installieren'),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
-              ),
-            ),
+              const SizedBox(height: 8),
+            ],
             if (_statusMessage != null) ...[
               const SizedBox(height: 12),
               _StatusBanner(message: _statusMessage!, ok: _statusOk),

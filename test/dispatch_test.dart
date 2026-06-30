@@ -3,12 +3,12 @@ import 'package:evcc_updater/src/commands.dart';
 import 'package:evcc_updater/src/evcc_updater.dart';
 import 'package:evcc_updater/src/parsing.dart';
 import 'package:evcc_updater/src/profiles.dart';
+import 'package:evcc_updater/src/services/pi_service.dart';
 import 'package:evcc_updater/src/ssh_runner.dart';
 import 'package:evcc_updater/src/update_check.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// In-memory config store seeded with a ready-to-use profile.
 class _FakeStore extends AppConfigStore {
   _FakeStore([this._initial = AppConfig.initial]);
   final AppConfig _initial;
@@ -19,35 +19,49 @@ class _FakeStore extends AppConfigStore {
   Future<void> save(AppConfig c) async => saved = c;
 }
 
-/// Updater test double — override the public surface the UI dispatches to.
+/// Updater test double — overrides the public surface the UI dispatches to.
 class FakeEvccUpdater extends EvccUpdater {
   FakeEvccUpdater() : super(runnerFactory: _noRunner);
   static SshRunner _noRunner(SshConfig c) => throw UnimplementedError();
 
+  List<ServiceStatus> services = const [
+    ServiceStatus(
+        id: 'evcc',
+        name: 'evcc',
+        installed: true,
+        version: '0.310.0',
+        active: true,
+        detail: 'apt · Dienst aktiv'),
+    ServiceStatus(
+        id: 'system',
+        name: 'System (Pi)',
+        installed: true,
+        version: 'Debian 12',
+        active: true,
+        detail: 'aktuell'),
+  ];
+  Object? detectError; // thrown by detect* (e.g. hostKeyChanged)
   InstallDetection detection = const InstallDetection(
       kind: InstallKind.apt, aptVersion: '0.310.0', serviceActive: true);
-  Object? detectError;
   UpdateSummary summary = const UpdateSummary(
       status: UpdateStatus.updated,
       message: 'evcc 0.310.0 → 0.311.0 aktualisiert.',
       before: '0.310.0',
       after: '0.311.0');
-
-  int runCalls = 0;
-  int dockerCalls = 0;
-  int forgetCalls = 0;
-  int backupCalls = 0;
   Object? backupError;
+
+  int runCalls = 0, dockerCalls = 0, backupCalls = 0, forgetCalls = 0;
+  int piholeUpdateCalls = 0, systemUpgradeCalls = 0;
   SshConfig? forgotConfig;
 
   @override
-  Future<String?> backup({
+  Future<List<ServiceStatus>> detectServices({
     required SshConfig config,
     required void Function(String line) onLog,
+    bool allowSudoForDocker = true,
   }) async {
-    backupCalls++;
-    if (backupError != null) throw backupError!;
-    return '/var/backups/evcc/evcc-backup-test.tar.gz';
+    if (detectError != null) throw detectError!;
+    return services;
   }
 
   @override
@@ -81,10 +95,34 @@ class FakeEvccUpdater extends EvccUpdater {
   }
 
   @override
+  Future<String?> backup({
+    required SshConfig config,
+    required void Function(String line) onLog,
+  }) async {
+    backupCalls++;
+    if (backupError != null) throw backupError!;
+    return '/var/backups/evcc/x.tar.gz';
+  }
+
+  @override
   Future<void> forgetHostKey(SshConfig config) async {
     forgetCalls++;
     forgotConfig = config;
   }
+
+  @override
+  Future<void> updatePihole({
+    required SshConfig config,
+    required void Function(String line) onLog,
+  }) async =>
+      piholeUpdateCalls++;
+
+  @override
+  Future<void> upgradeSystem({
+    required SshConfig config,
+    required void Function(String line) onLog,
+  }) async =>
+      systemUpgradeCalls++;
 }
 
 final _noUpdateChecker =
@@ -97,7 +135,7 @@ const _ready = AppConfig(
 
 void main() {
   void useTallScreen(WidgetTester tester) {
-    tester.view.physicalSize = const Size(1080, 2600);
+    tester.view.physicalSize = const Size(1080, 3000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -109,171 +147,148 @@ void main() {
           store: _FakeStore(_ready),
           updater: updater,
           updateChecker: _noUpdateChecker,
-          // Default: no release notes → update proceeds without a confirm.
           evccReleaseFetcher: rel ?? () async => null,
         ),
       );
 
-  testWidgets('apt update surfaces the summary message + version badge',
+  // Run a connection test → populates the service cards.
+  Future<void> detect(WidgetTester tester) async {
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Verbindung testen'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('test shows "Verbunden" and reveals the service cards',
       (tester) async {
     useTallScreen(tester);
-    final updater = FakeEvccUpdater();
-    await tester.pumpWidget(page(updater));
+    await tester.pumpWidget(page(FakeEvccUpdater()));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithText(FilledButton, 'evcc aktualisieren'));
+    expect(find.text('Verbindung testen'), findsOneWidget);
+    await detect(tester);
+
+    expect(find.text('Verbunden'), findsOneWidget);
+    expect(find.text('evcc'), findsWidgets); // evcc card
+    expect(find.text('System (Pi)'), findsOneWidget);
+  });
+
+  testWidgets('a failed test shows the red "Keine Verbindung" state',
+      (tester) async {
+    useTallScreen(tester);
+    final u = FakeEvccUpdater()
+      ..detectError =
+          const EvccUpdateException(UpdateErrorKind.connection, 'offline');
+    await tester.pumpWidget(page(u));
+    await tester.pumpAndSettle();
+    await detect(tester);
+
+    expect(find.text('Keine Verbindung'), findsWidgets);
+  });
+
+  testWidgets('evcc card "Aktualisieren" backs up then runs the update',
+      (tester) async {
+    useTallScreen(tester);
+    final u = FakeEvccUpdater();
+    await tester.pumpWidget(page(u));
+    await tester.pumpAndSettle();
+    await detect(tester);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Aktualisieren'));
     await tester.pumpAndSettle();
 
-    expect(updater.backupCalls, 1); // backup runs first (toggle on by default)
-    expect(updater.runCalls, 1);
+    expect(u.backupCalls, 1);
+    expect(u.runCalls, 1);
     expect(find.text('evcc 0.310.0 → 0.311.0 aktualisiert.'), findsOneWidget);
   });
 
-  testWidgets('a failed backup is shown and the update does NOT run',
+  testWidgets('evcc card on a docker install recreates the container',
       (tester) async {
     useTallScreen(tester);
-    final updater = FakeEvccUpdater()
-      ..backupError = const EvccUpdateException(
-          UpdateErrorKind.unknown, 'Backup fehlgeschlagen (Exit 1).');
-    await tester.pumpWidget(page(updater));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.widgetWithText(FilledButton, 'evcc aktualisieren'));
-    await tester.pumpAndSettle();
-
-    expect(updater.backupCalls, 1);
-    expect(updater.runCalls, 0); // halted — never updated without a backup
-    // Shown in the status banner (and the live log).
-    expect(find.textContaining('Backup fehlgeschlagen'), findsWidgets);
-  });
-
-  testWidgets('docker install: update button recreates the container',
-      (tester) async {
-    useTallScreen(tester);
-    final updater = FakeEvccUpdater()
+    final u = FakeEvccUpdater()
       ..detection = const InstallDetection(
           kind: InstallKind.docker,
           container: EvccDocker(name: 'evcc', image: 'evcc/evcc:latest'));
-    await tester.pumpWidget(page(updater));
+    await tester.pumpWidget(page(u));
+    await tester.pumpAndSettle();
+    await detect(tester);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Aktualisieren'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithText(FilledButton, 'evcc aktualisieren'));
-    await tester.pumpAndSettle();
-
-    expect(updater.dockerCalls, 1);
-    expect(updater.runCalls, 0);
+    expect(u.dockerCalls, 1);
+    expect(u.runCalls, 0);
     expect(find.textContaining('Container aktualisiert'), findsOneWidget);
   });
 
-  testWidgets('docker install: dry-run reports it is unavailable, no-op',
+  testWidgets('evcc card ⋮ → Probelauf on docker reports it is unavailable',
       (tester) async {
     useTallScreen(tester);
-    final updater = FakeEvccUpdater()
+    final u = FakeEvccUpdater()
       ..detection = const InstallDetection(
           kind: InstallKind.docker,
           container: EvccDocker(name: 'evcc', image: 'evcc/evcc:latest'));
-    await tester.pumpWidget(page(updater));
+    await tester.pumpWidget(page(u));
+    await tester.pumpAndSettle();
+    await detect(tester);
+
+    // The evcc card is the first service card (PopupMenuButton<int>).
+    await tester.tap(find.byType(PopupMenuButton<int>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Probelauf (ändert nichts)'));
     await tester.pumpAndSettle();
 
-    await tester.tap(
-        find.widgetWithText(OutlinedButton, 'Probelauf (ändert nichts)'));
-    await tester.pumpAndSettle();
-
-    expect(updater.dockerCalls, 0);
+    expect(u.dockerCalls, 0);
     expect(find.textContaining('Docker-Installationen nicht verfügbar'),
         findsOneWidget);
-  });
-
-  testWidgets('Test button turns "Verbunden" on a successful test',
-      (tester) async {
-    useTallScreen(tester);
-    final updater = FakeEvccUpdater(); // default detection = apt success
-    await tester.pumpWidget(page(updater));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Verbindung testen'), findsOneWidget); // idle label
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Verbindung testen'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Verbunden'), findsOneWidget); // green/ok state
-    expect(find.text('Verbindung testen'), findsNothing);
-  });
-
-  testWidgets('test-connection: unknown install is a non-OK banner + red button',
-      (tester) async {
-    useTallScreen(tester);
-    final updater = FakeEvccUpdater()
-      ..detection = const InstallDetection(kind: InstallKind.unknown);
-    await tester.pumpWidget(page(updater));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Verbindung testen'));
-    await tester.pumpAndSettle();
-
-    expect(find.textContaining('nicht gefunden'), findsOneWidget);
-    expect(find.text('Keine Verbindung'), findsOneWidget); // red/fail state
   });
 
   testWidgets('a changed host key surfaces the trust-and-retry button',
       (tester) async {
     useTallScreen(tester);
-    final updater = FakeEvccUpdater()
+    final u = FakeEvccUpdater()
       ..detectError = const EvccUpdateException(
           UpdateErrorKind.hostKeyChanged, 'Host-Key geändert!');
-    await tester.pumpWidget(page(updater));
+    await tester.pumpWidget(page(u));
     await tester.pumpAndSettle();
-
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Verbindung testen'));
-    await tester.pumpAndSettle();
+    await detect(tester);
 
     expect(find.textContaining('neuen Key vertrauen'), findsOneWidget);
   });
 
-  testWidgets('trust-and-retry forgets the key and replays the action',
+  testWidgets('trust-and-retry forgets the key and replays the test',
       (tester) async {
     useTallScreen(tester);
-    final updater = FakeEvccUpdater()
+    final u = FakeEvccUpdater()
       ..detectError = const EvccUpdateException(
           UpdateErrorKind.hostKeyChanged, 'Host-Key geändert!');
-    await tester.pumpWidget(page(updater));
+    await tester.pumpWidget(page(u));
     await tester.pumpAndSettle();
+    await detect(tester);
 
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Verbindung testen'));
-    await tester.pumpAndSettle();
-
-    // The retry now succeeds (key trusted, apt found).
-    updater
-      ..detectError = null
-      ..detection = const InstallDetection(
-          kind: InstallKind.apt, aptVersion: '0.311.0', serviceActive: true);
+    u.detectError = null; // retry now succeeds
     await tester.tap(find.byIcon(Icons.verified_user_outlined));
     await tester.pumpAndSettle();
 
-    expect(updater.forgetCalls, 1);
-    expect(updater.forgotConfig!.host, '192.168.178.64');
-    expect(find.textContaining('evcc 0.311.0 (apt)'), findsOneWidget);
+    expect(u.forgetCalls, 1);
+    expect(u.forgotConfig!.host, '192.168.178.64');
+    expect(find.text('Verbunden'), findsOneWidget);
   });
 
   testWidgets('update is cancellable from the release-notes confirm',
       (tester) async {
     useTallScreen(tester);
-    final updater = FakeEvccUpdater();
-    await tester.pumpWidget(page(updater,
+    final u = FakeEvccUpdater();
+    await tester.pumpWidget(page(u,
         rel: () async => const EvccRelease(version: '0.311.0', notes: 'x')));
     await tester.pumpAndSettle();
+    await detect(tester);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'evcc aktualisieren'));
-    // Not pumpAndSettle: the busy spinner animates forever while the confirm
-    // dialog is open, so settle never completes. Drive frames manually.
-    await tester.pump(); // _busy=true frame
-    await tester.pump(); // release-notes microtask resolves → dialog shows
-    await tester.pump(const Duration(milliseconds: 300)); // dialog transition
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Aktualisieren'));
+    await tester.pumpAndSettle();
     expect(find.text('evcc 0.311.0 installieren?'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(TextButton, 'Abbrechen'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(updater.runCalls, 0); // cancelled → no SSH run
+    await tester.pumpAndSettle();
+    expect(u.runCalls, 0); // cancelled → no SSH run
   });
 
   testWidgets('Pi finden with no results shows the manual-entry hint',

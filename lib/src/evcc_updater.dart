@@ -7,6 +7,9 @@ import 'commands.dart';
 import 'dartssh2_runner.dart';
 import 'host_key.dart';
 import 'parsing.dart';
+import 'services/pi_service.dart';
+import 'services/pihole_service.dart';
+import 'services/system_service.dart';
 import 'settings_store.dart';
 import 'ssh_runner.dart';
 
@@ -308,6 +311,212 @@ class EvccUpdater {
       },
     );
   }
+
+  /// Detects ALL known services (evcc, Pi-hole, System) in one SSH session and
+  /// returns their status for the service cards. Read-only; never sends the sudo
+  /// password unless [allowSudoForDocker] permits the docker-permission retry.
+  Future<List<ServiceStatus>> detectServices({
+    required SshConfig config,
+    required void Function(String line) onLog,
+    bool allowSudoForDocker = true,
+  }) {
+    return _withConnection<List<ServiceStatus>>(
+      config: config,
+      onLog: onLog,
+      body: (runner, log) async {
+        log('Erkenne Dienste …');
+        final out = <ServiceStatus>[];
+
+        // ---- evcc (apt or docker) ----
+        final dpkg = await runner.run(versionQuery);
+        final aptV = parseInstalledVersion(dpkg.stdout);
+        if (aptV != null) {
+          final svc = await runner.run(serviceStatus);
+          final active = isServiceActive(svc.stdout);
+          out.add(ServiceStatus(
+            id: 'evcc',
+            name: 'evcc',
+            installed: true,
+            version: aptV,
+            active: active,
+            detail: 'apt · Dienst ${active ? 'aktiv' : 'inaktiv'}',
+          ));
+        } else {
+          var listing = await runner.run(dockerListCommand);
+          if (allowSudoForDocker &&
+              isDockerPermissionError('${listing.stdout}\n${listing.stderr}')) {
+            listing = await runner.run(dockerListSudoCommand,
+                stdin: '${config.password}\n');
+          }
+          final c = parseEvccDocker(listing.stdout);
+          out.add(c != null
+              ? ServiceStatus(
+                  id: 'evcc',
+                  name: 'evcc',
+                  installed: true,
+                  version: c.image,
+                  active: true,
+                  detail: 'Docker · ${c.name}')
+              : ServiceStatus.absent('evcc', 'evcc'));
+        }
+
+        // ---- Pi-hole ----
+        final pv = await runner.run(piholeVersionCommand);
+        final pver = parsePiholeVersion(pv.stdout);
+        if (pver != null) {
+          final ps = await runner.run(piholeStatusCommand);
+          final blocking = isPiholeBlocking(ps.stdout);
+          out.add(ServiceStatus(
+            id: 'pihole',
+            name: 'Pi-hole',
+            installed: true,
+            version: pver.version,
+            active: blocking,
+            updateAvailable: pver.updateAvailable,
+            detail: blocking ? 'Blocking aktiv' : 'Blocking aus',
+          ));
+        } else {
+          out.add(ServiceStatus.absent('pihole', 'Pi-hole'));
+        }
+
+        // ---- System (always present) ----
+        final os = await runner.run(systemOsCommand);
+        final pend = await runner.run(systemPendingCommand);
+        final n = parsePendingUpdates(pend.stdout) ?? 0;
+        out.add(ServiceStatus(
+          id: 'system',
+          name: 'System (Pi)',
+          installed: true,
+          version: parseOsPrettyName(os.stdout),
+          active: true,
+          updateAvailable: n > 0,
+          detail: n > 0 ? '$n Updates verfügbar' : 'aktuell',
+        ));
+
+        log('Erkannt: ${out.where((s) => s.installed).map((s) => s.name).join(', ')}.');
+        return out;
+      },
+    );
+  }
+
+  /// Runs one sudo command, streaming output; maps a rejected password / non-zero
+  /// exit to a clear [EvccUpdateException]. Used by the Pi-hole + System actions.
+  Future<void> _sudoCommand(
+    SshRunner runner,
+    void Function(String) log,
+    SshConfig config,
+    String command,
+    String failMsg, {
+    bool checkExit = true,
+  }) async {
+    log('\$ $command');
+    final r = await runner.run(
+      command,
+      stdin: '${config.password}\n',
+      onOutput: (c) {
+        final t = c.trimRight();
+        if (t.isNotEmpty) log(t);
+      },
+    );
+    final combined = '${r.stdout}\n${r.stderr}';
+    if (isSudoPasswordFailure(combined)) {
+      throw const EvccUpdateException(
+        UpdateErrorKind.sudo,
+        'sudo hat das Passwort abgelehnt – stimmt das Pi-Passwort?',
+      );
+    }
+    if (checkExit && r.exitCode != null && r.exitCode != 0) {
+      throw EvccUpdateException(
+        UpdateErrorKind.unknown,
+        '$failMsg (Exit ${r.exitCode}). Details im Log.',
+      );
+    }
+  }
+
+  /// Updates Pi-hole (core/web/FTL) via `pihole -up`.
+  Future<void> updatePihole({
+    required SshConfig config,
+    required void Function(String line) onLog,
+  }) =>
+      _withConnection<void>(
+        config: config,
+        onLog: onLog,
+        body: (runner, log) async {
+          log('Aktualisiere Pi-hole …');
+          await _sudoCommand(runner, log, config, piholeUpdateCommand,
+              'Pi-hole-Update fehlgeschlagen');
+          log('Pi-hole ist aktuell.');
+        },
+      );
+
+  /// Rebuilds the Pi-hole blocklists (gravity).
+  Future<void> updatePiholeGravity({
+    required SshConfig config,
+    required void Function(String line) onLog,
+  }) =>
+      _withConnection<void>(
+        config: config,
+        onLog: onLog,
+        body: (runner, log) async {
+          log('Aktualisiere Blocklisten (gravity) …');
+          await _sudoCommand(runner, log, config, piholeGravityCommand,
+              'Gravity-Update fehlgeschlagen');
+          log('Blocklisten aktualisiert.');
+        },
+      );
+
+  /// Restarts the Pi-hole DNS resolver.
+  Future<void> restartPiholeDns({
+    required SshConfig config,
+    required void Function(String line) onLog,
+  }) =>
+      _withConnection<void>(
+        config: config,
+        onLog: onLog,
+        body: (runner, log) async {
+          await _sudoCommand(runner, log, config, piholeRestartCommand,
+              'DNS-Neustart fehlgeschlagen');
+          log('Pi-hole-DNS neu gestartet.');
+        },
+      );
+
+  /// Installs Pi-hole unattended (experimental — see buildPiholeInstallScript).
+  Future<void> installPihole({
+    required SshConfig config,
+    required void Function(String line) onLog,
+  }) =>
+      _withConnection<void>(
+        config: config,
+        onLog: onLog,
+        body: (runner, log) async {
+          log('Installiere Pi-hole … (unbeaufsichtigt, dauert ein paar Minuten)');
+          await _runRootScript(runner, log, config,
+              sudo: true, script: buildPiholeInstallScript());
+          log('Pi-hole installiert – Einrichtung im Browser unter /admin.');
+        },
+      );
+
+  /// Whole-system upgrade: refresh lists (tolerant) then `apt-get full-upgrade`.
+  Future<void> upgradeSystem({
+    required SshConfig config,
+    required void Function(String line) onLog,
+  }) =>
+      _withConnection<void>(
+        config: config,
+        onLog: onLog,
+        body: (runner, log) async {
+          log('System-Upgrade (alle Pakete) …');
+          // apt-get update may exit non-zero on a flaky third-party repo —
+          // tolerate it (checkExit:false) so a fine upgrade isn't blocked.
+          await _sudoCommand(runner, log, config,
+              'LC_ALL=C sudo -S apt-get update -qq', 'apt-get update',
+              checkExit: false);
+          await _sudoCommand(runner, log, config,
+              'LC_ALL=C sudo -S apt-get full-upgrade -y',
+              'System-Upgrade fehlgeschlagen');
+          log('System aktualisiert.');
+        },
+      );
 
   /// Updates a Docker-deployed evcc. Inspects the container once: if it's
   /// compose-managed, it pulls + recreates the evcc service via `docker compose`

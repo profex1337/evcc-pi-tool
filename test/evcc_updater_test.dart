@@ -5,6 +5,8 @@ import 'package:dartssh2/dartssh2.dart';
 import 'package:evcc_updater/src/commands.dart';
 import 'package:evcc_updater/src/evcc_updater.dart';
 import 'package:evcc_updater/src/parsing.dart';
+import 'package:evcc_updater/src/services/pihole_service.dart';
+import 'package:evcc_updater/src/services/system_service.dart';
 import 'package:evcc_updater/src/ssh_runner.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -541,6 +543,82 @@ void main() {
         _updaterWith(runner).backup(config: _config, onLog: (_) {}),
         throwsA(isA<EvccUpdateException>()),
       );
+    });
+  });
+
+  group('EvccUpdater.detectServices', () {
+    test('detects evcc(apt) + Pi-hole + System in one pass', () async {
+      final runner = FakeSshRunner({
+        _vQuery: [_r('0.310.0\n')],
+        _svc: [_r('active\n')],
+        piholeVersionCommand: [_r('Core version is v6.0.4 (Latest: v6.1.0)')],
+        piholeStatusCommand: [_r('[✓] Pi-hole blocking is enabled')],
+        systemOsCommand: [_r('PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"')],
+        systemPendingCommand: [_r('3 upgraded, 0 newly installed, 0 to remove.')],
+      });
+
+      final list =
+          await _updaterWith(runner).detectServices(config: _config, onLog: (_) {});
+      final byId = {for (final s in list) s.id: s};
+
+      expect(byId['evcc']!.installed, isTrue);
+      expect(byId['evcc']!.version, '0.310.0');
+      expect(byId['pihole']!.installed, isTrue);
+      expect(byId['pihole']!.version, 'v6.0.4');
+      expect(byId['pihole']!.updateAvailable, isTrue);
+      expect(byId['system']!.version, contains('Debian'));
+      expect(byId['system']!.updateAvailable, isTrue);
+    });
+
+    test('Pi-hole reported absent when not installed', () async {
+      final runner = FakeSshRunner({
+        _vQuery: [_r('0.310.0\n')],
+        _svc: [_r('active\n')],
+        piholeVersionCommand: [_r('')],
+        systemOsCommand: [_r('PRETTY_NAME="Raspbian"')],
+        systemPendingCommand: [_r('0 upgraded, 0 newly installed.')],
+      });
+
+      final list =
+          await _updaterWith(runner).detectServices(config: _config, onLog: (_) {});
+      expect(list.firstWhere((s) => s.id == 'pihole').installed, isFalse);
+      expect(list.firstWhere((s) => s.id == 'system').updateAvailable, isFalse);
+    });
+  });
+
+  group('EvccUpdater Pi-hole + System actions', () {
+    test('updatePihole runs pihole -up with the password via stdin', () async {
+      final runner =
+          FakeSshRunner({piholeUpdateCommand: [_r('[✓] Update complete')]});
+      await _updaterWith(runner).updatePihole(config: _config, onLog: (_) {});
+      expect(runner.commandsRun, contains(piholeUpdateCommand));
+      expect(runner.stdinByCommand[piholeUpdateCommand], 'sekret\n');
+      expect(runner.commandsRun.any((c) => c.contains('sekret')), isFalse);
+    });
+
+    test('updatePihole maps a rejected sudo password', () async {
+      final runner = FakeSshRunner({
+        piholeUpdateCommand: [
+          _r('', stderr: 'sudo: 1 incorrect password attempt', exitCode: 1)
+        ],
+      });
+      await expectLater(
+        _updaterWith(runner).updatePihole(config: _config, onLog: (_) {}),
+        throwsA(isA<EvccUpdateException>()
+            .having((e) => e.kind, 'kind', UpdateErrorKind.sudo)),
+      );
+    });
+
+    test('upgradeSystem runs full-upgrade and tolerates a failed apt update',
+        () async {
+      const upd = 'LC_ALL=C sudo -S apt-get update -qq';
+      const full = 'LC_ALL=C sudo -S apt-get full-upgrade -y';
+      final runner = FakeSshRunner({
+        upd: [_r('', stderr: 'Failed to fetch', exitCode: 100)],
+        full: [_r('12 upgraded, 0 newly installed', exitCode: 0)],
+      });
+      await _updaterWith(runner).upgradeSystem(config: _config, onLog: (_) {});
+      expect(runner.commandsRun, contains(full));
     });
   });
 
