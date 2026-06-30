@@ -1426,7 +1426,11 @@ class _UpdaterPageState extends State<UpdaterPage>
                 TextButton.icon(
                   onPressed: () => showLicensePage(
                     context: context,
-                    applicationName: 'Pi-Tool (inoffiziell, für evcc)',
+                    applicationName: 'Pi-Tool (inoffiziell)',
+                    applicationIcon: const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: _PromptMark(size: 56),
+                    ),
                     applicationLegalese:
                         '© 2026 KYTH. Systems UG (haftungsbeschränkt) i.G.',
                   ),
@@ -1438,7 +1442,8 @@ class _UpdaterPageState extends State<UpdaterPage>
             const SizedBox(height: 4),
             Text(
               'Nutzung auf eigene Gefahr – keine Haftung für Schäden am '
-              'System. Inoffizielles Tool, nicht mit evcc verbunden.',
+              'System. Inoffizielles Tool, nicht mit evcc oder Pi-hole '
+              'verbunden.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodySmall
                   ?.copyWith(color: theme.colorScheme.onSurfaceVariant),

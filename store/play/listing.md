@@ -14,43 +14,17 @@ Alles hier ist vorbereitet. Was nur **du** machen kannst, ist unten unter „Che
 Pi-Tool
 ```
 
-**Kurzbeschreibung (max. 80):**
-```
-evcc auf dem Raspberry Pi per SSH aktualisieren und installieren – ein Knopfdruck.
-```
+**Kurz- & Vollbeschreibung:** maßgeblich sind die fastlane-Metadaten — **von dort kopieren**, damit es nur eine Quelle gibt (kein doppelter, driftender Text):
+- Deutsch: [`fastlane/metadata/android/de-DE/short_description.txt`](../../fastlane/metadata/android/de-DE/short_description.txt) + [`full_description.txt`](../../fastlane/metadata/android/de-DE/full_description.txt)
+- Englisch: [`fastlane/metadata/android/en-US/`](../../fastlane/metadata/android/en-US/)
 
-**Vollbeschreibung (max. 4000):**
-```
-Pi-Tool aktualisiert und installiert evcc auf deinem Raspberry Pi – bequem per SSH, mit einem Knopfdruck.
-
-Funktionen:
-• evcc aktualisieren (apt) – mit Versions-Diff vorher/nachher
-• Probelauf (Dry-Run) – zeigt gefahrlos, ob ein Update verfügbar ist
-• Verbindung testen – prüft Host/Port/Benutzer/Passwort in Sekunden
-• evcc neu installieren – richtet das offizielle apt-Repo ein und installiert evcc
-• Optionales komplettes System-Upgrade
-• Live-Log der SSH-Ausgabe, Versions-Badge
-• Schnellzugriff auf die evcc-Weboberfläche (http://<Pi>:7070)
-
-Sicherheit & Datenschutz:
-• Deine Zugangsdaten bleiben verschlüsselt auf dem Gerät (Android Keystore)
-• Keine Konten, keine Werbung, kein Tracking, keine Cloud
-• Das Passwort wird nur über deine eigene SSH-Verbindung an deinen Pi gesendet
-
-Hinweis: Dies ist ein inoffizielles Community-Tool und steht in keiner Verbindung zum evcc-Projekt.
-Für die tägliche Lade-Steuerung gibt es die offizielle evcc-App.
-
-Haftungsausschluss: Die App führt sudo-Befehle (apt, systemctl, reboot) auf deinem Gerät aus.
-Nutzung auf eigene Gefahr – keine Haftung für Schäden an System, Daten oder Hardware.
-
-Voraussetzungen: ein per SSH erreichbarer Raspberry Pi (oder Linux/Debian-Gerät) mit deinen Zugangsdaten.
-```
+Diese beschreiben den Multi-Service-Stand (evcc + Pi-hole + ganzer Pi) inkl. Affiliation-Hinweis „nicht mit evcc oder Pi-hole verbunden".
 
 **Was ist neu (Release Notes):** siehe jeweiliges GitHub-Release.
 
 ## Kategorie / Kontakt
 - Kategorie: **Tools** (Productivity ginge auch)
-- Tags: evcc, Raspberry Pi, SSH
+- Tags: Raspberry Pi, SSH, evcc, Pi-hole
 - Website: https://profex1337.github.io/evcc-pi-tool/
 - Datenschutz-URL: **https://profex1337.github.io/evcc-pi-tool/privacy.html**
 - Kontakt-E-Mail: **hello@kyth.systems**
@@ -80,5 +54,5 @@ Voraussetzungen: ein per SSH erreichbarer Raspberry Pi (oder Linux/Debian-Gerät
 - [ ] 2–8 Screenshots erstellen
 - [ ] Kontakt-E-Mail in der Console setzen
 - [ ] `.aab` aus dem CI-Artifact hochladen, Data-Safety + Content-Rating ausfüllen, Datenschutz-URL eintragen
-- [ ] (Empfohlen) im Listing klar „inoffiziell, nicht mit evcc affiliiert" erwähnen (steht schon in der Beschreibung)
+- [ ] (Empfohlen) im Listing klar „inoffiziell, nicht mit evcc oder Pi-hole verbunden" erwähnen (steht schon in der Beschreibung)
 ```

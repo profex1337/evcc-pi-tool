@@ -541,6 +541,60 @@ class _NameDialogState extends State<_NameDialog> {
   }
 }
 
+/// The app's brand mark: a shell prompt `>` with the green KYTH cursor dot.
+/// Mirrors the launcher icon (assets/icon) so in-app branding matches.
+class _PromptMark extends StatelessWidget {
+  const _PromptMark({super.key, this.size = 64});
+
+  /// Width in logical pixels; height follows the mark's aspect ratio.
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size * (432 / 446),
+      child: const CustomPaint(painter: _PromptMarkPainter()),
+    );
+  }
+}
+
+class _PromptMarkPainter extends CustomPainter {
+  const _PromptMarkPainter();
+
+  // Group space (matches make_icon.py): 446 x 432, chevron tip at x=36,
+  // vertex at x=236, dot centred at x=384. Vertical centre y=216.
+  static const double _gw = 446;
+  static const double _gh = 432;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = (size.width / _gw) < (size.height / _gh)
+        ? size.width / _gw
+        : size.height / _gh;
+    canvas.translate((size.width - _gw * s) / 2, (size.height - _gh * s) / 2);
+    canvas.scale(s);
+
+    final chevron = Paint()
+      ..color = const Color(0xFFE8EDE9)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 72
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final path = Path()
+      ..moveTo(36, 36)
+      ..lineTo(236, 216)
+      ..lineTo(36, 396);
+    canvas.drawPath(path, chevron);
+
+    canvas.drawCircle(
+        const Offset(384, 216), 62, Paint()..color = kGreen);
+  }
+
+  @override
+  bool shouldRepaint(_PromptMarkPainter oldDelegate) => false;
+}
+
 class _LockScreen extends StatelessWidget {
   const _LockScreen({required this.onUnlock});
 
@@ -554,7 +608,7 @@ class _LockScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.bolt, color: kGreen, size: 56),
+            const _PromptMark(key: Key('promptMark'), size: 76),
             const SizedBox(height: 12),
             const Text('Pi-Tool',
                 style: TextStyle(

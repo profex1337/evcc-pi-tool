@@ -233,6 +233,9 @@ void main() {
 
     expect(find.text('Gesperrt'), findsOneWidget);
     expect(find.text('Entsperren'), findsOneWidget);
+    // Branding is the prompt mark, not the old evcc bolt.
+    expect(find.byKey(const Key('promptMark')), findsOneWidget);
+    expect(find.byIcon(Icons.bolt), findsNothing);
     // Main UI must be hidden behind the lock.
     expect(find.text('evcc aktualisieren'), findsNothing);
   });
