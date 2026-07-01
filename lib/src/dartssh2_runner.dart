@@ -16,12 +16,23 @@ import 'ssh_runner.dart';
 class Dartssh2Runner implements SshRunner {
   final SshConfig config;
   final HostKeyStore _hostKeyStore;
+
+  /// On the FIRST connection to a host, ask the user to confirm the presented
+  /// SHA256 fingerprint before trusting it. Returns true to trust + proceed,
+  /// false to abort (no password is sent). When null, first use is trusted
+  /// automatically (legacy TOFU / tests).
+  final Future<bool> Function(String fingerprint)? confirmFirstUse;
+
   SSHClient? _client;
   String? _changedFingerprint;
   String? _storedAtCheck;
+  bool _firstUseDeclined = false;
 
-  Dartssh2Runner(this.config, {HostKeyStore? hostKeyStore})
+  Dartssh2Runner(this.config, {HostKeyStore? hostKeyStore, this.confirmFirstUse})
       : _hostKeyStore = hostKeyStore ?? SecureHostKeyStore();
+
+  /// True when the user declined the first-use fingerprint confirmation.
+  bool get firstUseDeclined => _firstUseDeclined;
 
   /// TOFU host-key decision, isolated for unit testing. [fingerprint] is the
   /// UTF-8-encoded `SHA256:<base64>` dartssh2 presents. First use records the
@@ -33,6 +44,13 @@ class Dartssh2Runner implements SshRunner {
     final stored = await _hostKeyStore.get(id);
     switch (verifyHostKey(stored: stored, presented: presented)) {
       case HostKeyVerdict.firstUse:
+        if (confirmFirstUse != null) {
+          final trust = await confirmFirstUse!(presented);
+          if (!trust) {
+            _firstUseDeclined = true;
+            return false; // abort the handshake — never trust or send a password
+          }
+        }
         await _hostKeyStore.set(id, presented);
         return true;
       case HostKeyVerdict.match:
@@ -97,6 +115,10 @@ class Dartssh2Runner implements SshRunner {
       await client.authenticated.timeout(config.timeout);
     } catch (e) {
       client.close();
+      // The user declined to trust a first-seen key — abort with a clear error.
+      if (_firstUseDeclined) {
+        throw const HostKeyDeclinedException();
+      }
       // A rejected host key surfaces as an SSHHostkeyError here; translate it
       // to a typed domain error carrying the new fingerprint.
       if (_changedFingerprint != null) {

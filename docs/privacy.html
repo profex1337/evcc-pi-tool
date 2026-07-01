@@ -46,10 +46,10 @@
 
   <h2>Netzwerkzugriffe</h2>
   <ul>
-    <li><strong>SSH</strong> zu dem von dir eingegebenen Host (dein eigenes Gerät im Netzwerk). Der
-      Host-Schlüssel wird beim ersten Verbinden vertraut und lokal gespeichert (Trust-On-First-Use);
-      ändert er sich später, wird die Verbindung aus Sicherheitsgründen blockiert, bevor ein Passwort
-      gesendet wird.</li>
+    <li><strong>SSH</strong> zu dem von dir eingegebenen Host (dein eigenes Gerät im Netzwerk). Beim
+      ersten Verbinden wird dir der SSH-Fingerprint des Pi zur Bestätigung angezeigt; erst nach deiner
+      Zustimmung wird er lokal gespeichert (Trust-On-First-Use). Ändert er sich später, wird die
+      Verbindung aus Sicherheitsgründen blockiert, bevor ein Passwort gesendet wird.</li>
     <li><strong>evcc-Web-API</strong> (Live-Status): ein lesender HTTP-Aufruf an
       <code>http(s)://&lt;dein Host&gt;:&lt;Port&gt;/api/state</code> auf deinem eigenen Gerät – nur wenn du
       „evcc-Status (Live)" öffnest. Keine Zugangsdaten werden dabei gesendet.</li>

@@ -161,10 +161,11 @@ nur noch tippen.
   Remote optional über **Tailscale-IP** (kein Portforwarding nötig).
 - Optionale **App-Sperre** per Biometrie/PIN; der Bildschirm ist gegen
   Screenshots/Recents geschützt (`FLAG_SECURE`).
-- **Host-Key-Verifizierung (TOFU):** Der SSH-Host-Key wird beim ersten Connect
-  gemerkt und danach geprüft. Ändert er sich (möglicher MITM oder neu
-  aufgesetzter Pi), **blockiert** die App und sendet kein Passwort — erst nach
-  bewusstem „neuen Key vertrauen".
+- **Host-Key-Verifizierung (TOFU):** Beim ersten Connect zeigt die App den
+  SSH-Fingerprint zur **Bestätigung** an und merkt ihn erst nach Zustimmung;
+  danach wird er geprüft. Ändert er sich (möglicher MITM oder neu aufgesetzter
+  Pi), **blockiert** die App und sendet kein Passwort — erst nach bewusstem
+  „neuen Key vertrauen".
 
 ## Build & Releases (CI)
 

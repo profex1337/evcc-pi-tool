@@ -97,10 +97,16 @@ class EvccUpdater {
   }
 
   /// Production updater backed by the real dartssh2 adapter.
-  factory EvccUpdater.real() {
+  /// [confirmFirstUse] is called on the first connection to a host with the
+  /// presented SHA256 fingerprint; return true to trust + proceed, false to
+  /// abort. When null, first use is trusted automatically (legacy TOFU).
+  factory EvccUpdater.real({
+    Future<bool> Function(String fingerprint)? confirmFirstUse,
+  }) {
     final store = SecureHostKeyStore();
     return EvccUpdater(
-      runnerFactory: (config) => Dartssh2Runner(config, hostKeyStore: store),
+      runnerFactory: (config) => Dartssh2Runner(config,
+          hostKeyStore: store, confirmFirstUse: confirmFirstUse),
       hostKeyStore: store,
     );
   }
@@ -1107,6 +1113,13 @@ class EvccUpdater {
             UpdateErrorKind.cancelled, 'Abgebrochen.');
       }
       if (e is EvccUpdateException) rethrow;
+      if (e is HostKeyDeclinedException) {
+        throw const EvccUpdateException(
+          UpdateErrorKind.connection,
+          'Host-Schlüssel nicht bestätigt – Verbindung abgebrochen. Es wurde '
+          'kein Passwort gesendet.',
+        );
+      }
       if (e is HostKeyChangedException) {
         throw EvccUpdateException(
           UpdateErrorKind.hostKeyChanged,

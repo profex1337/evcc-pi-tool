@@ -122,10 +122,14 @@ class UpdaterPage extends StatefulWidget {
 class _UpdaterPageState extends State<UpdaterPage>
     with WidgetsBindingObserver {
   late final AppConfigStore _store = widget.store ?? AppConfigStore();
-  late final EvccUpdater _updater = widget.updater ?? EvccUpdater.real();
+  late final EvccUpdater _updater =
+      widget.updater ?? EvccUpdater.real(confirmFirstUse: _confirmFirstHostKey);
   // Separate updater for the silent on-launch/after-switch detection so it never
   // shares the foreground action's single cancel handle (_active/_cancelRequested).
-  late final EvccUpdater _autoUpdater = widget.updater ?? EvccUpdater.real();
+  // It never trusts a first-seen key on its own — trust is only established via
+  // an explicit, user-confirmed connect.
+  late final EvccUpdater _autoUpdater = widget.updater ??
+      EvccUpdater.real(confirmFirstUse: (_) async => false);
   late final UpdateChecker _updateChecker =
       widget.updateChecker ?? UpdateChecker();
   late final Authenticator _authenticator =
@@ -1261,6 +1265,51 @@ class _UpdaterPageState extends State<UpdaterPage>
       ),
     );
     return r == true && mounted;
+  }
+
+  /// Shown on the FIRST connection to a host: display the presented SSH
+  /// fingerprint and let the user confirm before it is trusted (TOFU). Returns
+  /// false (abort, no password sent) if declined or the UI is gone.
+  Future<bool> _confirmFirstHostKey(String fingerprint) async {
+    if (!mounted) return false;
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Neuen Pi vertrauen?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Erste Verbindung zu ${_host.text.trim()}. Prüfe den '
+                'SSH-Fingerprint des Pi:'),
+            const SizedBox(height: 10),
+            SelectableText(
+              fingerprint,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Nur „Vertrauen", wenn der Fingerprint zu deinem Pi passt. Bei '
+              '„Abbrechen" wird KEIN Passwort gesendet.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.verified_user_outlined, size: 18),
+            label: const Text('Vertrauen'),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
   }
 
   void _snack(String msg) {

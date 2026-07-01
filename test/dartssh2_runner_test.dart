@@ -39,6 +39,38 @@ void main() {
       expect(store.data[id], 'SHA256:aaa'); // trusted on first use
     });
 
+    test('first use with a confirm callback that accepts: records + accepts',
+        () async {
+      final store = FakeHostKeyStore();
+      var shown = '';
+      final runner = Dartssh2Runner(_config,
+          hostKeyStore: store,
+          confirmFirstUse: (fp) async {
+            shown = fp;
+            return true;
+          });
+
+      final accepted = await runner.checkAndRecordHostKey(_fp('SHA256:new'));
+
+      expect(accepted, isTrue);
+      expect(shown, 'SHA256:new'); // fingerprint surfaced to the user
+      expect(store.data[id], 'SHA256:new');
+      expect(runner.firstUseDeclined, isFalse);
+    });
+
+    test('first use declined: does not trust, aborts before any password',
+        () async {
+      final store = FakeHostKeyStore();
+      final runner = Dartssh2Runner(_config,
+          hostKeyStore: store, confirmFirstUse: (_) async => false);
+
+      final accepted = await runner.checkAndRecordHostKey(_fp('SHA256:new'));
+
+      expect(accepted, isFalse); // false aborts the handshake → no password sent
+      expect(store.data, isEmpty); // NOT trusted
+      expect(runner.firstUseDeclined, isTrue);
+    });
+
     test('match: accepts without rewriting the store', () async {
       final store = FakeHostKeyStore({id: 'SHA256:aaa'});
       final runner = Dartssh2Runner(_config, hostKeyStore: store);

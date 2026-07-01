@@ -75,6 +75,15 @@ class HostKeyChangedException implements Exception {
   String toString() => 'HostKeyChangedException($host:$port, new=$presented)';
 }
 
+/// Thrown when the user declined to trust a host's key on first use (the
+/// fingerprint confirmation dialog was cancelled). The handshake is aborted
+/// before any password is sent.
+class HostKeyDeclinedException implements Exception {
+  const HostKeyDeclinedException();
+  @override
+  String toString() => 'HostKeyDeclinedException';
+}
+
 /// Minimal SSH surface used by the updater.
 abstract class SshRunner {
   /// Open the connection and authenticate. Throws on connection/auth failure.

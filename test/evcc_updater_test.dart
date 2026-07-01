@@ -833,6 +833,18 @@ void main() {
       );
     });
 
+    test('a declined first-use host key maps to a clear connection error',
+        () async {
+      final runner =
+          FakeSshRunner({}, connectError: const HostKeyDeclinedException());
+      await expectLater(
+        _updaterWith(runner).detectServices(config: _config, onLog: (_) {}),
+        throwsA(isA<EvccUpdateException>()
+            .having((e) => e.kind, 'kind', UpdateErrorKind.connection)
+            .having((e) => e.message, 'message', contains('nicht bestätigt'))),
+      );
+    });
+
     test('Pi-hole reported absent when not installed', () async {
       final runner = FakeSshRunner({
         _vQuery: [_r('installed 0.310.0\n')],
